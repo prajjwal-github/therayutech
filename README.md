@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # IMAGE-ONLY Full Upper-Body AI Model Dataset Generation & Training Pipeline
 
 A complete, production-grade, 100% **IMAGE-ONLY** upper-body AI training and joint analysis pipeline built from scratch.
@@ -93,3 +94,6 @@ therayu/
 ├── run_pipeline.py
 └── README.md
 ```
+=======
+# AIML_Pose_Detection
+>>>>>>> 78cbfa2f7d094e84c5fb59a8473bf1461096f077
