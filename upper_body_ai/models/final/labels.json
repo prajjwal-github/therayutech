@@ -1,0 +1,16 @@
+{
+  "classes": [
+    "ARMS_DOWN",
+    "ARMS_SIDEWAYS",
+    "ARMS_UP",
+    "ASYMMETRIC_PHYSIO",
+    "CROSS_BODY_LEFT",
+    "CROSS_BODY_RIGHT",
+    "ELBOW_FLEXED_LEFT",
+    "ELBOW_FLEXED_RIGHT",
+    "LEFT_ARM_UP",
+    "PARTIAL_RAISE_LEFT",
+    "PARTIAL_RAISE_RIGHT",
+    "RIGHT_ARM_UP"
+  ]
+}

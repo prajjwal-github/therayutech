@@ -1,0 +1,12 @@
+{
+  "benchmark_timestamp": "2026-08-11 22:59:59",
+  "num_frames_tested": 100,
+  "avg_fps": 22.1,
+  "avg_latency_ms": 45.33,
+  "cpu_usage_pct": 29.1,
+  "ram_usage_mb": 297.0,
+  "hardware_acceleration": "ONNX Runtime / CPU Multi-Threaded",
+  "avg_pose_confidence_pct": 81.3,
+  "pck_accuracy_pct": 100.0,
+  "oks_accuracy_score": 1.0
+}

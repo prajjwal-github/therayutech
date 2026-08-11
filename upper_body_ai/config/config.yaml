@@ -1,0 +1,100 @@
+# Commercial Real-Time Full Body AI Medical Engine Configuration
+
+camera:
+  device_id: 0
+  width: 1280
+  height: 720
+  target_fps: 60
+  buffer_size: 2
+  flip_horizontal: true
+
+filter:
+  default_filter: "one_euro" # Options: "one_euro", "kalman", "ema", "none"
+  one_euro:
+    min_cutoff: 1.0     # Min cutoff frequency (Hz) for stationary smoothing
+    beta: 0.007         # Speed coefficient for fast dynamic response
+    d_cutoff: 1.0       # Derivative cutoff frequency
+  kalman:
+    process_noise: 1.0e-4
+    measurement_noise: 1.0e-2
+  ema:
+    alpha: 0.35
+
+gui:
+  theme: "medical_dark"
+  render_skeleton: true
+  render_joints: true
+  render_bones: true
+  render_hands: true
+  render_angles_hud: true
+  render_confidence_badges: true
+  render_telemetry_bar: true
+  glowing_joints: true
+  joint_radius: 5
+  bone_thickness: 2
+  font_scale: 0.50
+  colors:
+    joint_core: [0, 255, 255]          # Cyan/Yellow
+    joint_glow: [0, 200, 255]
+    bone_spine_neck: [255, 220, 220]   # Lavender Soft White
+    bone_torso_pelvis: [120, 255, 0]   # Neon Mint Green
+    bone_arm_left: [255, 180, 0]       # Light Blue
+    bone_arm_right: [0, 200, 255]      # Gold/Orange
+    bone_leg_left: [0, 220, 255]       # Bright Amber
+    bone_leg_right: [255, 150, 0]      # Deep Cyan
+    bone_hand_left: [255, 200, 100]    # Soft Blue
+    bone_hand_right: [100, 220, 255]   # Soft Amber
+    card_bg: [25, 30, 40]              # Medical Dark Card BGR
+    card_border: [70, 85, 110]
+
+physiotherapy:
+  normal_ranges:
+    shoulder_flexion: [0, 180]
+    shoulder_abduction: [0, 180]
+    elbow_flexion: [0, 150]
+    hip_flexion: [0, 125]
+    hip_abduction: [0, 45]
+    knee_flexion: [0, 140]
+    ankle_flexion: [0, 50]
+    neck_inclination: [0, 35]
+    trunk_posture: [0, 25]
+    pelvic_tilt: [0, 20]
+  smoothing_alpha: 0.3
+
+tracking:
+  max_persons: 4
+  iou_threshold: 0.30
+  max_disappeared_frames: 30
+
+hardware:
+  enable_holistic: true
+  enable_hands: true
+  model_complexity: 1
+  min_detection_confidence: 0.50
+  min_tracking_confidence: 0.50
+
+pose_classes:
+  - STANDING_POSTURE
+  - WALKING_GAIT
+  - RUNNING_MOTION
+  - SITTING_POSTURE
+  - SQUAT_EXERCISE
+  - LUNGE_LEFT
+  - LUNGE_RIGHT
+  - LEG_RAISE_LEFT
+  - LEG_RAISE_RIGHT
+  - HEEL_RAISE
+  - FULL_BODY_STRETCH
+  - ARMS_UP
+  - ARMS_SIDEWAYS
+  - ARMS_DOWN
+  - CROSS_BODY_LEFT
+  - CROSS_BODY_RIGHT
+  - ELBOW_FLEXED_LEFT
+  - ELBOW_FLEXED_RIGHT
+
+paths:
+  models_dir: "models/final"
+  output_dir: "output"
+  recordings_dir: "output/recordings"
+  screenshots_dir: "output/screenshots"

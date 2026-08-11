@@ -1,0 +1,20 @@
+{
+  "best_model_name": "mlp_neural_net",
+  "candidate_comparison": {
+    "random_forest": {
+      "train_accuracy": 0.9994517543859649,
+      "validation_accuracy": 0.6432160804020101,
+      "validation_f1": 0.6314821004024737
+    },
+    "gradient_boosting": {
+      "train_accuracy": 1.0,
+      "validation_accuracy": 0.6381909547738693,
+      "validation_f1": 0.6326911627682211
+    },
+    "mlp_neural_net": {
+      "train_accuracy": 0.975328947368421,
+      "validation_accuracy": 0.6834170854271356,
+      "validation_f1": 0.6785383608675041
+    }
+  }
+}

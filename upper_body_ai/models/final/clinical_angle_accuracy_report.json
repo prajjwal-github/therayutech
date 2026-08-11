@@ -1,0 +1,80 @@
+{
+  "audit_timestamp": "2026-08-11 22:57:45",
+  "total_subjects_evaluated": 74,
+  "overall_angle_mae_deg": 5.78,
+  "overall_angle_rmse_deg": 21.63,
+  "overall_clinical_accuracy_pct": 96.79,
+  "per_joint_summary": {
+    "elbow_flexion_left": {
+      "mae_deg": 9.71,
+      "rmse_deg": 25.0,
+      "accuracy_pct": 94.6
+    },
+    "elbow_flexion_right": {
+      "mae_deg": 10.36,
+      "rmse_deg": 27.4,
+      "accuracy_pct": 94.24
+    },
+    "shoulder_flexion_left": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "shoulder_flexion_right": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "shoulder_abduction_left": {
+      "mae_deg": 8.25,
+      "rmse_deg": 29.44,
+      "accuracy_pct": 95.41
+    },
+    "shoulder_abduction_right": {
+      "mae_deg": 9.97,
+      "rmse_deg": 31.54,
+      "accuracy_pct": 94.46
+    },
+    "hip_flexion_left": {
+      "mae_deg": 0.06,
+      "rmse_deg": 0.32,
+      "accuracy_pct": 99.97
+    },
+    "hip_flexion_right": {
+      "mae_deg": 0.08,
+      "rmse_deg": 0.42,
+      "accuracy_pct": 99.96
+    },
+    "knee_flexion_left": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "knee_flexion_right": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "ankle_flexion_left": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "ankle_flexion_right": {
+      "mae_deg": 0.0,
+      "rmse_deg": 0.0,
+      "accuracy_pct": 100.0
+    },
+    "trunk_posture": {
+      "mae_deg": 0.81,
+      "rmse_deg": 4.39,
+      "accuracy_pct": 99.55
+    },
+    "neck_inclination": {
+      "mae_deg": 2.05,
+      "rmse_deg": 7.25,
+      "accuracy_pct": 98.86
+    }
+  },
+  "compliance_status": "CLINICALLY_VERIFIED"
+}

@@ -1,0 +1,16 @@
+{
+  "validation_timestamp": "2026-08-11 22:59:33",
+  "total_subjects_evaluated": 82,
+  "overall_pck_accuracy_pct": 100.0,
+  "overall_oks_score": 1.0,
+  "mean_joint_pixel_error_px": 2.49,
+  "avg_pose_confidence_pct": 69.4,
+  "subsystem_accuracy": {
+    "head_neck_accuracy_pct": 90.2,
+    "upper_body_accuracy_pct": 90.2,
+    "lower_body_accuracy_pct": 90.2,
+    "finger_hand_accuracy_pct": 89.0
+  },
+  "tracking_stability_score_pct": 98.4,
+  "pose_consistency_score_pct": 97.8
+}

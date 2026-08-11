@@ -1,0 +1,22 @@
+{
+  "session_timestamp": "2026-08-03 22:30:10",
+  "pose_name": "Tadasana (Mountain Pose)",
+  "max_accuracy_pct": 98.1,
+  "avg_accuracy_pct": 93.2,
+  "hold_time_achieved": "00:00 / 15:15",
+  "body_region_scores": {
+    "Head": 95.0,
+    "Neck": 95.0,
+    "Shoulders": 100.0,
+    "Arms": 100.0,
+    "Spine": 100.0,
+    "Pelvis": 100.0,
+    "Legs": 100.0,
+    "Feet": 95.0,
+    "Overall": 98.1
+  },
+  "active_corrections_given": [
+    "PERFECT POSE! Hold position steadily."
+  ],
+  "recommendations": "Excellent form maintained. Continue practicing daily for improved flexibility and core stability."
+}

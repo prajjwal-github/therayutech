@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+output/recordings/
+output/screenshots/
+*.mp4
+*.avi
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store

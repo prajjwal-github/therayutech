@@ -1,0 +1,77 @@
+# Configuration for IMAGE-ONLY Upper-Body AI Pipeline
+
+dataset:
+  base_dir: "dataset"
+  generated_dir: "dataset/generated"
+  raw_dir: "dataset/raw"
+  processed_dir: "dataset/processed"
+  rejected_dir: "dataset/rejected"
+  annotations_dir: "dataset/annotations"
+  train_dir: "dataset/train"
+  val_dir: "dataset/validation"
+  test_dir: "dataset/test"
+  hard_cases_dir: "dataset/hard_cases"
+  target_images: 1000
+  image_width: 800
+  image_height: 800
+
+quality_control:
+  min_pose_confidence: 0.15
+  min_landmark_visibility: 0.15
+  phash_similarity_threshold: 5 # Hamming distance threshold for deduplication
+  rejected_log: "dataset/rejected/rejection_log.json"
+  max_elbow_angle_diff: 175.0
+  min_elbow_angle_diff: 10.0
+
+landmarks:
+  target_keypoints:
+    - NOSE
+    - LEFT_EYE
+    - RIGHT_EYE
+    - LEFT_EAR
+    - RIGHT_EAR
+    - LEFT_SHOULDER
+    - RIGHT_SHOULDER
+    - LEFT_ELBOW
+    - RIGHT_ELBOW
+    - LEFT_WRIST
+    - RIGHT_WRIST
+    - LEFT_PINKY
+    - RIGHT_PINKY
+    - LEFT_INDEX
+    - RIGHT_INDEX
+    - LEFT_THUMB
+    - RIGHT_THUMB
+    - LEFT_HIP
+    - RIGHT_HIP
+
+pose_classes:
+  - ARMS_DOWN
+  - ARMS_UP
+  - LEFT_ARM_UP
+  - RIGHT_ARM_UP
+  - ARMS_SIDEWAYS
+  - PARTIAL_RAISE_LEFT
+  - PARTIAL_RAISE_RIGHT
+  - ELBOW_FLEXED_LEFT
+  - ELBOW_FLEXED_RIGHT
+  - CROSS_BODY_LEFT
+  - CROSS_BODY_RIGHT
+  - ASYMMETRIC_PHYSIO
+
+training:
+  train_split: 0.70
+  val_split: 0.15
+  test_split: 0.15
+  random_seed: 42
+  augmentation_factor: 2 # generate 2 augmented versions per training sample
+  models_dir: "models/final"
+  checkpoints_dir: "models/checkpoints"
+  primary_model: "random_forest" # options: random_forest, gradient_boosting, mlp
+
+inference:
+  output_dir: "output"
+  render_skeleton: true
+  skeleton_color: [0, 255, 0] # BGR Green
+  joint_color: [0, 0, 255]    # BGR Red
+  text_color: [255, 255, 255] # BGR White
