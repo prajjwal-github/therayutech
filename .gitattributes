@@ -1,0 +1,43 @@
+# Normalise line endings once, so they stop showing up as phantom diffs.
+#
+# Without this, files committed from Windows land in the repository with CRLF
+# while anything written by a Linux tool lands with LF, and git reports whole
+# files as modified when only the invisible line terminators differ — 845
+# changed lines across 25 files, none of them real.
+#
+# `text=auto` means: store text as LF in the repository, check it out with
+# whatever the platform expects. Binary files are pinned explicitly so git never
+# tries to translate bytes inside them.
+
+* text=auto
+
+# ---- Explicitly text ---------------------------------------------------------
+*.py      text
+*.dart    text
+*.yaml    text
+*.yml     text
+*.json    text
+*.md      text
+*.txt     text
+*.xml     text
+*.html    text
+*.kt      text
+*.kts     text
+*.gradle  text
+
+# ---- Windows scripts need CRLF to run reliably -------------------------------
+*.ps1     text eol=crlf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+# ---- Never translate --------------------------------------------------------
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.pkl     binary
+*.tflite  binary
+*.mp4     binary
+*.zip     binary
