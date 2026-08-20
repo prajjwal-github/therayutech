@@ -1,0 +1,7 @@
+# LAN inference server for the Flutter Android client.
+# Installs ON TOP OF the existing upper_body_ai/requirements.txt
+# (opencv-python, mediapipe, numpy, scipy, pyyaml, ... must already be present).
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0

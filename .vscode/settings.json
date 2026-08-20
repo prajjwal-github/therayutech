@@ -1,0 +1,31 @@
+{
+  "// PYTHON — why activateEnvironment is false": "The extension prepends a venv to the terminal PATH on every new terminal. When the path points at a .venv that does not exist yet, it can shadow the real `python` and you get 'not recognized' in the VS Code terminal while cmd.exe works fine. The venv is selected explicitly by launch.json and tasks.json instead, so nothing here needs to touch your PATH.",
+  "python.terminal.activateEnvironment": false,
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": ["${workspaceFolder}/upper_body_ai"],
+
+  "// DART": "The Flutter project is a subfolder, not the workspace root.",
+  "dart.lineLength": 88,
+  "dart.previewFlutterUiGuides": true,
+  "editor.formatOnSave": true,
+  "[dart]": {
+    "editor.defaultFormatter": "Dart-Code.dart-code",
+    "editor.rulers": [88],
+    "editor.selectionHighlight": false,
+    "editor.tabCompletion": "onlySnippetPrefix",
+    "editor.wordBasedSuggestions": "off"
+  },
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.dart_tool": true
+  },
+  "search.exclude": {
+    "**/dataset": true,
+    "**/.dart_tool": true,
+    "**/build": true,
+    "**/output": true,
+    "**/.venv": true
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell"
+}

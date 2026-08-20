@@ -1,99 +1,133 @@
-<<<<<<< HEAD
-# IMAGE-ONLY Full Upper-Body AI Model Dataset Generation & Training Pipeline
+# Therayu — AI Physiotherapy Motion Analysis
 
-A complete, production-grade, 100% **IMAGE-ONLY** upper-body AI training and joint analysis pipeline built from scratch.
-
-> [!IMPORTANT]
-> **STRICT REQUIREMENT**: Zero video data, zero video frame extraction, zero temporal sequence models. 100% static image pipeline.
+Real-time clinical joint-angle measurement from a single webcam. A Flutter front
+end streams camera frames to a Python inference server, which runs MediaPipe Pose
+and a goniometric angle engine and streams landmarks and angles back for overlay.
 
 ---
 
-## 🌟 Key Features
+## Architecture
 
-1. **Procedural Synthetic Generator (`generate_dataset.py`)**: Programmatically renders thousands of static human upper-body images adhering to a matrix of poses (arms down, arms up, T-pose, elbow flexions, cross-body, physio poses), views (front 0°, 3/4 view, side view), camera distances (close 1.2m, medium 2.5m, far 4.0m), skin tones, clothing types, and room environments.
-2. **Quality & Safety Filter (`src/quality_filter.py`)**: Automatic rejection of bad synthetic human anatomy (extra/missing limbs, collapsed joints) and deduplication via Perceptual Hashing (pHash).
-3. **Distance & Scale-Invariant Normalization (`src/landmark_normalizer.py`)**: Coordinates centered on `ShoulderCenter` and scaled by body dimensions `(TorsoLength + ShoulderWidth) / 2` to eliminate instability when moving close/far from the camera.
-4. **3D Joint Angle Calculator (`src/angle_calculator.py`)**: Vector mathematics for left/right elbow flexions, shoulder elevations, torso orientation/spine tilt, cross-body distances, and symmetry metrics.
-5. **Leakage-Free Train/Val/Test Splitting (`prepare_dataset.py`)**: Base dataset split into 70% Train, 15% Validation, 15% Test prior to train-set augmentation (color jitter, noise, horizontal flip with explicit Left/Right landmark ID & pose class swapping).
-6. **Multi-Model Trainer (`train.py`)**: Trains and compares RandomForest, GradientBoosting, and MLP Neural Network classifiers.
-7. **Automated Optimization Loop (`evaluate.py`)**: Evaluates model performance on unseen test data, calculates per-class accuracy and joint angle MAE, identifies weak poses (<90% accuracy), and triggers targeted synthetic image generation to improve accuracy.
-8. **Single-Image CLI & Visualizer (`test_image.py`)**: Analyzes any input image, prints joint angles and confidence, and saves annotated skeleton output overlays to `output/test_annotated.jpg`.
-
----
-
-## 🚀 Quick Start & 1-Command Pipeline
-
-### 1. Run Master Pipeline
-```bash
-python run_pipeline.py
+```
+Flutter client  ──WebSocket──▶  FastAPI server  ──▶  MediaPipe Pose + Hands
+(Chrome / Android)                                    │
+       ▲                                              ▼
+       └──── landmarks + clinical angles ─────  PhysiotherapyAngleEngine
 ```
 
-### 2. Individual Step Commands
-```bash
-# Step 1: Generate synthetic upper-body image dataset
-python generate_dataset.py --count 1000
+The Flutter app never computes anatomy; it renders what the server sends. The
+server wraps the existing clinical engine without modifying it.
 
-# Step 2: Quality filter, pseudo-label, split (70/15/15), and augment train set
-python prepare_dataset.py
-
-# Step 3: Train multi-candidate models and save best weights to models/final/
-python train.py
-
-# Step 4: Evaluate on unseen test dataset & run weak-pose optimization loop
-python evaluate.py
-
-# Step 5: Test single image inference
-python test_image.py --image dataset/test/upper_body_00001_arms_down.jpg
-```
+**Wire format** — `[uint32 LE header length][UTF-8 JSON header][pixel payload]`.
+Payload formats: `rgba` (web fast path, direct canvas read), `nv21` (Android raw
+planes), `jpeg` (fallback).
 
 ---
 
-## 📁 Directory Structure
+## Quick start
+
+Two terminals, both inside VS Code.
+
+```bash
+# Terminal 1 — inference server
+cd upper_body_ai
+pip install -r requirements.txt -r server/requirements-server.txt
+python server/ws_server.py
+
+# Terminal 2 — Flutter client
+cd therayu_app
+flutter pub get
+flutter run -d chrome
+```
+
+The client pre-fills `localhost:8765`. Full setup, including the automated
+PowerShell scripts and VS Code tasks, is in [RUN.md](RUN.md).
+
+---
+
+## Body modes
+
+Pick `Upper`, `Lower` or `Full` in the app. Each maps to an exercise profile in
+`src/camera_validator.py` with its own required landmarks and framing guidance:
+
+| framing problem | UPPER | LOWER | FULL |
+|---|---|---|---|
+| head above frame | blocked | ready | blocked |
+| feet below frame | ready | blocked | blocked |
+| hands below frame | blocked | ready | blocked |
+
+When a profile's landmarks are not all visible the engine reports
+`is_ready = false` and refuses to publish angles rather than guessing.
+
+---
+
+## Measurement convention
+
+MediaPipe returns landmarks normalised as `x = px/width` and `y = px/height`, so
+the two axes have different scales on any non-square frame. Every vector in
+`metrics/physio_angles.py` is corrected back to square pixels using the frame
+aspect ratio before an angle is taken.
+
+**MediaPipe's `z` is deliberately not used.** It is a weakly-supervised depth
+estimate from a single RGB frame. An earlier version blended
+`0.60 × angle_3d + 0.40 × angle_2d` using it; measured against the app's own
+rendered skeleton, that inflated elbow flexion by 20–35° — a visibly straight arm
+reported 38° of flexion. Frontal-plane angles are measured in the image plane;
+sagittal motion is reported as `SIDE VIEW REQ` rather than estimated.
+
+Mirroring (`flip_horizontal: true`) means MediaPipe's LEFT/RIGHT labels follow
+the image, not the patient. `L Elbow Flexion` refers to the limb on the left of
+the mirrored preview.
+
+---
+
+## Tests
+
+```bash
+python tests/test_body_modes.py        # all three profiles, end to end
+python tests/test_framing_guidance.py  # framing truth table per profile
+cd upper_body_ai && python ../tests/test_angle_accuracy.py
+```
+
+`test_angle_accuracy.py` replays joint positions measured off rendered output and
+asserts the engine reproduces them, then swings every `z` from 0 to 99 to prove
+depth no longer influences the result.
+
+---
+
+## Training pipeline
+
+The dataset and classifier tooling that predates the live app still works and is
+independent of it — the live path uses MediaPipe plus deterministic geometry, not
+the trained classifier.
+
+```bash
+python run_pipeline.py           # full pipeline
+python prepare_dataset.py        # quality filter, 70/15/15 split, augment
+python train.py                  # RandomForest / GradientBoosting / MLP
+python evaluate.py               # test-set metrics + weak-pose optimisation
+```
+
+`upper_body_ai/dataset/` (~289 MB) is not tracked; regenerate it locally.
+
+---
+
+## Layout
 
 ```
 therayu/
+├── therayu_app/              Flutter client (web + Android)
+│   └── lib/
+│       ├── screens/          connect + live session
+│       ├── services/         socket, camera, interpolation, session state
+│       ├── widgets/          skeleton painter, angle cards, status
+│       └── theme/            single source of truth for colour
 ├── upper_body_ai/
-│   ├── config.yaml
-│   ├── requirements.txt
-│   └── src/
-│       ├── dataset_generator.py
-│       ├── quality_filter.py
-│       ├── pose_detector.py
-│       ├── annotation_generator.py
-│       ├── landmark_normalizer.py
-│       ├── angle_calculator.py
-│       ├── augmentation.py
-│       ├── trainer.py
-│       ├── evaluator.py
-│       └── inference.py
-├── dataset/
-│   ├── generated/
-│   ├── raw/
-│   ├── processed/
-│   ├── rejected/
-│   ├── annotations/
-│   ├── train/
-│   ├── validation/
-│   ├── test/
-│   └── hard_cases/
-├── models/
-│   └── final/
-│       ├── best_upper_body_model.pkl
-│       ├── scaler.pkl
-│       ├── label_encoder.pkl
-│       ├── labels.json
-│       ├── metrics.json
-│       └── final_evaluation_report.json
-├── output/
-│   └── test_annotated.jpg
-├── generate_dataset.py
-├── prepare_dataset.py
-├── train.py
-├── evaluate.py
-├── test_image.py
-├── run_pipeline.py
-└── README.md
+│   ├── server/ws_server.py   FastAPI WebSocket inference server
+│   ├── metrics/              goniometric angle engine
+│   ├── inference/            pipeline, filters, calibration
+│   ├── src/                  detector, validator, analysis, logging
+│   └── models/final/         trained classifier artefacts
+├── tests/                    body modes, framing, angle accuracy
+└── RUN.md                    full setup and troubleshooting
 ```
-=======
-# AIML_Pose_Detection
->>>>>>> 78cbfa2f7d094e84c5fb59a8473bf1461096f077

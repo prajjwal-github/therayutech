@@ -4,6 +4,27 @@ import numpy as np
 class PhysiotherapyAngleEngine:
     """
     Standard Clinical Goniometric Joint Angle Calculation Engine.
+
+    COORDINATE CONVENTION — read this before touching the geometry.
+
+    MediaPipe hands back landmarks normalised as x = px/frame_width and
+    y = px/frame_height. Those two axes therefore have DIFFERENT scales on any
+    non-square frame, so an angle computed directly from (x, y) is not the angle
+    a goniometer would read. Every vector built here is corrected back to square
+    pixels by multiplying x by the frame aspect ratio, which is passed into
+    compute_physio_metrics. A uniform scale does not change angles, so there is
+    no need to know the absolute resolution.
+
+    MediaPipe's `z` is DELIBERATELY NOT USED. It is a weakly-supervised depth
+    guess from a single RGB frame and is by far the least reliable channel the
+    model produces. This engine previously blended 0.60*angle_3d + 0.40*angle_2d
+    using that z, which was measured against the app's own rendered skeleton and
+    found to inflate elbow flexion by 20-35 degrees: a visibly straight arm read
+    as 38 degrees of flexion, because the 3D term alone put the elbow at 119
+    degrees. Frontal-plane angles from a single camera are measured in the image
+    plane; out-of-plane motion is reported as "SIDE VIEW REQ" instead of being
+    guessed at.
+
     Implements standard clinical physiotherapy / goniometry conventions:
     - Elbow Flexion: Standard 3-point angle (Shoulder -> Elbow -> Wrist). 0 deg (extended arm) to 150 deg (full flexion).
     - Shoulder Abduction (Frontal Plane): Angle between arm vector (Shoulder -> Elbow) and torso vertical reference axis (ShoulderCenter -> HipCenter).
@@ -33,113 +54,123 @@ class PhysiotherapyAngleEngine:
         "pelvic_tilt": (0, 20)
     }
 
-    def __init__(self, min_confidence=0.50):
+    def __init__(self, min_confidence=0.50, frame_aspect=1.0):
         self.min_confidence = min_confidence
 
-    def _calculate_vector_angle_3d(self, pt_a, pt_b, pt_c):
+        # Fallback used only when a caller omits the per-frame aspect ratio.
+        # 1.0 means "treat the normalised space as already square", which
+        # reproduces the old behaviour for callers that do not know the frame
+        # size (offline dataset tooling). The live pipeline always passes the
+        # real value.
+        self.frame_aspect = float(frame_aspect) if frame_aspect else 1.0
+
+    def _confident(self, *pts):
+        """True when every landmark exists and clears the confidence floor."""
+        for pt in pts:
+            if not pt:
+                return False
+            if pt.get("visibility", 1.0) < self.min_confidence:
+                return False
+        return True
+
+    def _vec(self, pt_from, pt_to, aspect):
         """
-        Calculates 3-point interior vector angle (in degrees) at pivot B between BA and BC.
-        Returns float angle in [0.0, 180.0] or None if insufficient confidence (<0.50).
+        Displacement in square-pixel proportions.
+
+        x is multiplied by the aspect ratio to undo MediaPipe's per-axis
+        normalisation; see the class docstring. z is intentionally absent.
         """
-        if not pt_a or not pt_b or not pt_c:
-            return None
-
-        vis_a = pt_a.get("visibility", 1.0)
-        vis_b = pt_b.get("visibility", 1.0)
-        vis_c = pt_c.get("visibility", 1.0)
-
-        if vis_a < self.min_confidence or vis_b < self.min_confidence or vis_c < self.min_confidence:
-            return None
-
-        # 3D Spatial Vector BA & BC
-        u3d = np.array([pt_a["x"] - pt_b["x"], pt_a["y"] - pt_b["y"], pt_a.get("z", 0.0) - pt_b.get("z", 0.0)], dtype=np.float64)
-        v3d = np.array([pt_c["x"] - pt_b["x"], pt_c["y"] - pt_b["y"], pt_c.get("z", 0.0) - pt_b.get("z", 0.0)], dtype=np.float64)
-
-        norm_u3d = np.linalg.norm(u3d)
-        norm_v3d = np.linalg.norm(v3d)
-        if norm_u3d <= 1e-6 or norm_v3d <= 1e-6:
-            return None
-
-        dot_3d = np.clip(np.dot(u3d, v3d) / (norm_u3d * norm_v3d), -1.0, 1.0)
-        angle_3d = float(np.degrees(np.arccos(dot_3d)))
-
-        # 2D Image Plane Projection Vector
-        u2d = np.array([pt_a["x"] - pt_b["x"], pt_a["y"] - pt_b["y"]], dtype=np.float64)
-        v2d = np.array([pt_c["x"] - pt_b["x"], pt_c["y"] - pt_b["y"]], dtype=np.float64)
-        norm_u2d = np.linalg.norm(u2d)
-        norm_v2d = np.linalg.norm(v2d)
-
-        if norm_u2d > 1e-6 and norm_v2d > 1e-6:
-            dot_2d = np.clip(np.dot(u2d, v2d) / (norm_u2d * norm_v2d), -1.0, 1.0)
-            angle_2d = float(np.degrees(np.arccos(dot_2d)))
-            return float(round(0.60 * angle_3d + 0.40 * angle_2d, 1))
-
-        return float(round(angle_3d, 1))
-
-    def _calculate_shoulder_abduction(self, sh_pt, elb_pt, l_sh_pt, r_sh_pt, l_hip_pt, r_hip_pt):
-        """
-        Calculates anatomical Shoulder Abduction in the frontal plane.
-        Uses the anatomical Torso Vertical Axis (shoulder_center -> hip_center).
-        Arm at side along torso = 0 deg, arm horizontal = 90 deg, arm overhead = 180 deg.
-        Returns None if required landmarks are missing or low-confidence (<0.50).
-        """
-        if not sh_pt or not elb_pt or not l_sh_pt or not r_sh_pt or not l_hip_pt or not r_hip_pt:
-            return None
-
-        vis_sh = sh_pt.get("visibility", 1.0)
-        vis_elb = elb_pt.get("visibility", 1.0)
-        vis_l_sh = l_sh_pt.get("visibility", 1.0)
-        vis_r_sh = r_sh_pt.get("visibility", 1.0)
-        vis_l_hip = l_hip_pt.get("visibility", 1.0)
-        vis_r_hip = r_hip_pt.get("visibility", 1.0)
-
-        # Strict Confidence Floor (vis >= 0.50) across shoulders, elbow, and hips
-        if (vis_sh < self.min_confidence or vis_elb < self.min_confidence or
-            vis_l_sh < self.min_confidence or vis_r_sh < self.min_confidence or
-            vis_l_hip < self.min_confidence or vis_r_hip < self.min_confidence):
-            return None
-
-        # Construct Torso Vertical Reference Vector (Shoulder Center -> Hip Center)
-        sh_center_x = (l_sh_pt["x"] + r_sh_pt["x"]) / 2.0
-        sh_center_y = (l_sh_pt["y"] + r_sh_pt["y"]) / 2.0
-        sh_center_z = (l_sh_pt.get("z", 0.0) + r_sh_pt.get("z", 0.0)) / 2.0
-
-        hip_center_x = (l_hip_pt["x"] + r_hip_pt["x"]) / 2.0
-        hip_center_y = (l_hip_pt["y"] + r_hip_pt["y"]) / 2.0
-        hip_center_z = (l_hip_pt.get("z", 0.0) + r_hip_pt.get("z", 0.0)) / 2.0
-
-        torso_vec = np.array([
-            hip_center_x - sh_center_x,
-            hip_center_y - sh_center_y,
-            hip_center_z - sh_center_z
+        return np.array([
+            (pt_to["x"] - pt_from["x"]) * aspect,
+            (pt_to["y"] - pt_from["y"]),
         ], dtype=np.float64)
 
-        # Arm Vector (Shoulder -> Elbow)
-        arm_vec = np.array([
-            elb_pt["x"] - sh_pt["x"],
-            elb_pt["y"] - sh_pt["y"],
-            elb_pt.get("z", 0.0) - sh_pt.get("z", 0.0)
-        ], dtype=np.float64)
+    def _angle_between(self, u, v):
+        """Unsigned angle between two vectors, in degrees, or None if degenerate."""
+        nu = np.linalg.norm(u)
+        nv = np.linalg.norm(v)
+        if nu <= 1e-9 or nv <= 1e-9:
+            return None
+        cos_t = np.clip(np.dot(u, v) / (nu * nv), -1.0, 1.0)
+        return float(np.degrees(np.arccos(cos_t)))
 
-        norm_torso = np.linalg.norm(torso_vec)
-        norm_arm = np.linalg.norm(arm_vec)
+    def _calculate_joint_angle(self, pt_a, pt_b, pt_c, aspect):
+        """
+        Interior goniometric angle at pivot B, between BA and BC.
 
-        if norm_torso <= 1e-6 or norm_arm <= 1e-6:
+        Returns a float in [0.0, 180.0], or None when any of the three
+        landmarks is missing or below the confidence floor (which the caller
+        surfaces as "TRACKING..." rather than inventing a number).
+        """
+        if not self._confident(pt_a, pt_b, pt_c):
             return None
 
-        dot_val = np.clip(np.dot(arm_vec, torso_vec) / (norm_torso * norm_arm), -1.0, 1.0)
-        abduction_angle = float(np.degrees(np.arccos(dot_val)))
+        angle = self._angle_between(self._vec(pt_b, pt_a, aspect),
+                                    self._vec(pt_b, pt_c, aspect))
+        return None if angle is None else float(round(angle, 1))
 
-        # Sanity check range [0.0, 180.0]
-        return float(round(max(0.0, min(180.0, abduction_angle)), 1))
+    def _tilt_from_vertical(self, pt_top, pt_bottom, aspect):
+        """
+        Deviation of a body segment from the image vertical, in degrees.
 
-    def compute_physio_metrics(self, landmarks_dict):
+        Aspect-corrected for the same reason as the joint angles: on a 16:9
+        frame the raw normalised form understates every tilt by roughly the
+        aspect ratio, so a genuine 12 degree lean was reporting as about 7.
+        """
+        if not self._confident(pt_top, pt_bottom):
+            return None
+        dx = (pt_top["x"] - pt_bottom["x"]) * aspect
+        dy = (pt_top["y"] - pt_bottom["y"])
+        return float(round(math.degrees(math.atan2(abs(dx), abs(dy) + 1e-9)), 1))
+
+    def _calculate_shoulder_abduction(self, sh_pt, elb_pt, l_sh_pt, r_sh_pt,
+                                      l_hip_pt, r_hip_pt, aspect):
+        """
+        Frontal-plane shoulder abduction, measured against the anatomical torso
+        axis (shoulder centre -> hip centre) rather than the image vertical, so
+        a patient who leans does not gain or lose range spuriously.
+
+        0 deg  = arm at the side, along the torso
+        90 deg = arm horizontal
+        180 deg = arm overhead
+
+        Returns None if any required landmark is missing or low-confidence.
+        """
+        if not self._confident(sh_pt, elb_pt, l_sh_pt, r_sh_pt, l_hip_pt, r_hip_pt):
+            return None
+
+        sh_center = {
+            "x": (l_sh_pt["x"] + r_sh_pt["x"]) / 2.0,
+            "y": (l_sh_pt["y"] + r_sh_pt["y"]) / 2.0,
+        }
+        hip_center = {
+            "x": (l_hip_pt["x"] + r_hip_pt["x"]) / 2.0,
+            "y": (l_hip_pt["y"] + r_hip_pt["y"]) / 2.0,
+        }
+
+        torso_vec = self._vec(sh_center, hip_center, aspect)
+        arm_vec = self._vec(sh_pt, elb_pt, aspect)
+
+        angle = self._angle_between(arm_vec, torso_vec)
+        if angle is None:
+            return None
+        return float(round(max(0.0, min(180.0, angle)), 1))
+
+    def compute_physio_metrics(self, landmarks_dict, frame_aspect=None):
         """
         Computes full-body clinical physiotherapy joint angles and balance indicators.
+
+        frame_aspect is frame_width / frame_height. It is required to undo
+        MediaPipe's per-axis normalisation; see the class docstring. Callers that
+        genuinely do not know the frame size may omit it, at the cost of the
+        aspect distortion it exists to remove.
+
         Returns dict of named angle metrics, normal range statuses, and active exercise assessment.
         """
         if not landmarks_dict:
             return {}
+
+        aspect = float(frame_aspect) if frame_aspect else self.frame_aspect
 
         def get_pt(name):
             return landmarks_dict.get(name, None)
@@ -147,8 +178,8 @@ class PhysiotherapyAngleEngine:
         angles = {}
 
         # 1. Elbow Flexion (Left & Right): Standard 3-point angle (Shoulder -> Elbow -> Wrist)
-        raw_elb_l = self._calculate_vector_angle_3d(get_pt("LEFT_SHOULDER"), get_pt("LEFT_ELBOW"), get_pt("LEFT_WRIST"))
-        raw_elb_r = self._calculate_vector_angle_3d(get_pt("RIGHT_SHOULDER"), get_pt("RIGHT_ELBOW"), get_pt("RIGHT_WRIST"))
+        raw_elb_l = self._calculate_joint_angle(get_pt("LEFT_SHOULDER"), get_pt("LEFT_ELBOW"), get_pt("LEFT_WRIST"), aspect)
+        raw_elb_r = self._calculate_joint_angle(get_pt("RIGHT_SHOULDER"), get_pt("RIGHT_ELBOW"), get_pt("RIGHT_WRIST"), aspect)
         angles["elbow_flexion_left"] = float(round(abs(180.0 - raw_elb_l), 1)) if raw_elb_l is not None else None
         angles["elbow_flexion_right"] = float(round(abs(180.0 - raw_elb_r), 1)) if raw_elb_r is not None else None
 
@@ -156,14 +187,14 @@ class PhysiotherapyAngleEngine:
         angles["right_elbow_angle"] = angles["elbow_flexion_right"]
 
         # 2. Knee Flexion (Left & Right): Standard Goniometric Flexion (0 deg = straight leg, 140 deg = squat)
-        raw_kn_l = self._calculate_vector_angle_3d(get_pt("LEFT_HIP"), get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"))
-        raw_kn_r = self._calculate_vector_angle_3d(get_pt("RIGHT_HIP"), get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"))
+        raw_kn_l = self._calculate_joint_angle(get_pt("LEFT_HIP"), get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"), aspect)
+        raw_kn_r = self._calculate_joint_angle(get_pt("RIGHT_HIP"), get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"), aspect)
         angles["knee_flexion_left"] = float(round(abs(180.0 - raw_kn_l), 1)) if raw_kn_l is not None else None
         angles["knee_flexion_right"] = float(round(abs(180.0 - raw_kn_r), 1)) if raw_kn_r is not None else None
 
         # 3. Hip Flexion (Left & Right): Trunk-Relative Flexion
-        raw_hip_l = self._calculate_vector_angle_3d(get_pt("LEFT_SHOULDER"), get_pt("LEFT_HIP"), get_pt("LEFT_KNEE"))
-        raw_hip_r = self._calculate_vector_angle_3d(get_pt("RIGHT_SHOULDER"), get_pt("RIGHT_HIP"), get_pt("RIGHT_KNEE"))
+        raw_hip_l = self._calculate_joint_angle(get_pt("LEFT_SHOULDER"), get_pt("LEFT_HIP"), get_pt("LEFT_KNEE"), aspect)
+        raw_hip_r = self._calculate_joint_angle(get_pt("RIGHT_SHOULDER"), get_pt("RIGHT_HIP"), get_pt("RIGHT_KNEE"), aspect)
         angles["hip_flexion_left"] = float(round(abs(180.0 - raw_hip_l), 1)) if raw_hip_l is not None else None
         angles["hip_flexion_right"] = float(round(abs(180.0 - raw_hip_r), 1)) if raw_hip_r is not None else None
 
@@ -175,18 +206,16 @@ class PhysiotherapyAngleEngine:
         l_hip = get_pt("LEFT_HIP")
         r_hip = get_pt("RIGHT_HIP")
 
-        angles["shoulder_abduction_left"] = self._calculate_shoulder_abduction(l_sh, l_elb, l_sh, r_sh, l_hip, r_hip)
-        angles["shoulder_abduction_right"] = self._calculate_shoulder_abduction(r_sh, r_elb, l_sh, r_sh, l_hip, r_hip)
+        angles["shoulder_abduction_left"] = self._calculate_shoulder_abduction(l_sh, l_elb, l_sh, r_sh, l_hip, r_hip, aspect)
+        angles["shoulder_abduction_right"] = self._calculate_shoulder_abduction(r_sh, r_elb, l_sh, r_sh, l_hip, r_hip, aspect)
 
         # Store Torso Angle & Landmark Confidence Scores for Debug Mode
         if l_sh and r_sh and l_hip and r_hip:
-            sh_center_x = (l_sh["x"] + r_sh["x"]) / 2.0
-            sh_center_y = (l_sh["y"] + r_sh["y"]) / 2.0
-            hip_center_x = (l_hip["x"] + r_hip["x"]) / 2.0
-            hip_center_y = (l_hip["y"] + r_hip["y"]) / 2.0
-            dx_t = hip_center_x - sh_center_x
-            dy_t = hip_center_y - sh_center_y
-            angles["torso_angle"] = float(round(math.degrees(math.atan2(abs(dx_t), abs(dy_t) + 1e-6)), 1))
+            sh_center = {"x": (l_sh["x"] + r_sh["x"]) / 2.0,
+                         "y": (l_sh["y"] + r_sh["y"]) / 2.0}
+            hip_center = {"x": (l_hip["x"] + r_hip["x"]) / 2.0,
+                          "y": (l_hip["y"] + r_hip["y"]) / 2.0}
+            angles["torso_angle"] = self._tilt_from_vertical(sh_center, hip_center, aspect)
         else:
             angles["torso_angle"] = None
 
@@ -203,17 +232,15 @@ class PhysiotherapyAngleEngine:
         angles["right_shoulder_angle"] = angles["shoulder_abduction_right"]
 
         # 6. Ankle Angle (Left & Right): Interior Plantigrade Angle (90 deg = neutral standing foot)
-        angles["ankle_flexion_left"] = self._calculate_vector_angle_3d(get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"), get_pt("LEFT_FOOT_INDEX"))
-        angles["ankle_flexion_right"] = self._calculate_vector_angle_3d(get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"), get_pt("RIGHT_FOOT_INDEX"))
+        angles["ankle_flexion_left"] = self._calculate_joint_angle(get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"), get_pt("LEFT_FOOT_INDEX"), aspect)
+        angles["ankle_flexion_right"] = self._calculate_joint_angle(get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"), get_pt("RIGHT_FOOT_INDEX"), aspect)
 
         # 7. Trunk Spine Posture / Inclination Angle
         pelvis = get_pt("PELVIS_CENTER")
         c7 = get_pt("C7_NECK")
-        if pelvis and c7 and pelvis.get("visibility", 1.0) >= self.min_confidence and c7.get("visibility", 1.0) >= self.min_confidence:
-            dx = c7["x"] - pelvis["x"]
-            dy = c7["y"] - pelvis["y"]
-            trunk_angle = math.degrees(math.atan2(abs(dx), abs(dy) + 1e-6))
-            angles["trunk_posture"] = float(round(trunk_angle, 1))
+        trunk_angle = self._tilt_from_vertical(c7, pelvis, aspect)
+        if trunk_angle is not None:
+            angles["trunk_posture"] = trunk_angle
             angles["torso_tilt_angle"] = angles["trunk_posture"]
         else:
             angles["trunk_posture"] = 0.0
@@ -221,18 +248,18 @@ class PhysiotherapyAngleEngine:
 
         # 8. Neck Tilt Angle
         nose = get_pt("NOSE")
-        if nose and c7 and nose.get("visibility", 1.0) >= self.min_confidence and c7.get("visibility", 1.0) >= self.min_confidence:
-            dx = nose["x"] - c7["x"]
-            dy = nose["y"] - c7["y"]
-            neck_angle = math.degrees(math.atan2(abs(dx), abs(dy) + 1e-6))
-            angles["neck_inclination"] = float(round(neck_angle, 1))
+        neck_angle = self._tilt_from_vertical(nose, c7, aspect)
+        if neck_angle is not None:
+            angles["neck_inclination"] = neck_angle
         else:
             angles["neck_inclination"] = 0.0
 
         # 9. Pelvic Tilt & Symmetry Metrics
         if l_hip and r_hip:
+            # Tilt of the hip line away from horizontal, so aspect correction is
+            # applied to the horizontal span rather than the vertical one.
             dy_pelvis = abs(l_hip["y"] - r_hip["y"])
-            dx_pelvis = abs(l_hip["x"] - r_hip["x"]) + 1e-6
+            dx_pelvis = abs(l_hip["x"] - r_hip["x"]) * aspect + 1e-9
             angles["pelvic_tilt"] = float(round(math.degrees(math.atan2(dy_pelvis, dx_pelvis)), 1))
         else:
             angles["pelvic_tilt"] = 0.0
@@ -247,7 +274,7 @@ class PhysiotherapyAngleEngine:
             r_ank = landmarks_dict["RIGHT_ANKLE"]
             hip_mid_x = (l_hip["x"] + r_hip["x"]) / 2.0
             ank_mid_x = (l_ank["x"] + r_ank["x"]) / 2.0
-            cog_offset = abs(hip_mid_x - ank_mid_x) * 100.0
+            cog_offset = abs(hip_mid_x - ank_mid_x) * aspect * 100.0
             angles["balance_offset"] = float(round(cog_offset, 1))
         else:
             angles["balance_offset"] = 0.0

@@ -1,0 +1,103 @@
+<!--
+================================================================================
+ANDROID MANIFEST — reference copy
+================================================================================
+`flutter create` generates android/app/src/main/AndroidManifest.xml for you.
+After running setup_android.ps1, open that generated file and make these three
+edits (the script does them automatically; this file is the reference in case
+you need to redo them by hand or on another machine).
+
+1. PERMISSIONS — add above the <application> tag:
+
+     <uses-permission android:name="android.permission.CAMERA" />
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-feature android:name="android.hardware.camera" android:required="true" />
+
+2. CLEARTEXT TRAFFIC — add to the <application> tag:
+
+     android:usesCleartextTraffic="true"
+
+   Android 9+ blocks unencrypted traffic by default. The LAN server speaks plain
+   ws:// on a private network, so this flag is required. It is scoped to your own
+   app only. If you would rather restrict it to a single host, drop the flag and
+   use a network security config instead (see the commented block at the bottom).
+
+3. LABEL — set the app name shown on the launcher:
+
+     android:label="Therayu"
+
+The finished <manifest> should look like this:
+================================================================================
+-->
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+
+    <application
+        android:label="Therayu"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+</manifest>
+
+<!--
+================================================================================
+OPTIONAL: tighter cleartext policy
+================================================================================
+Instead of android:usesCleartextTraffic="true", you can whitelist only private
+address ranges. Create android/app/src/main/res/xml/network_security_config.xml:
+
+    <?xml version="1.0" encoding="utf-8"?>
+    <network-security-config>
+        <domain-config cleartextTrafficPermitted="true">
+            <domain includeSubdomains="true">192.168.0.0</domain>
+            <domain includeSubdomains="true">10.0.0.0</domain>
+        </domain-config>
+        <base-config cleartextTrafficPermitted="false" />
+    </network-security-config>
+
+then on <application> use:
+
+    android:networkSecurityConfig="@xml/network_security_config"
+
+Note that domain-config matches hostnames, not CIDR ranges, so in practice you
+would list the specific PC IP you use. For a lab or clinic on a fixed IP that is
+worth doing; for a machine on DHCP the blanket flag is more practical.
+================================================================================
+-->

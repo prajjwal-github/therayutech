@@ -1,0 +1,56 @@
+name: therayu_app
+description: AI Physiotherapy Platform - live pose, clinical goniometry and rehab assessment.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Camera frame streaming (YUV420 -> NV21 -> LAN socket).
+  camera: ^0.11.0
+
+  # WebSocket transport to the Python inference server.
+  web_socket_channel: ^3.0.1
+
+  # Health check before opening the socket.
+  http: ^1.2.2
+
+  # Remembers the last server address / body mode between sessions.
+  shared_preferences: ^2.3.2
+
+  # Keeps the screen awake during a session.
+  wakelock_plus: ^1.2.8
+
+  # Canvas interop for the fast web capture path (see frame_grabber_web.dart).
+  # Web-only in practice; harmless on Android.
+  web: ^1.1.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
+  # ---------------------------------------------------------------------------
+  # FIGMA FONT HOOK
+  # If your Figma theme uses a specific typeface, drop the .ttf files into
+  # assets/fonts/ and uncomment this block, then set
+  # AppTheme.fontFamily = 'FigmaSans' in lib/theme/app_theme.dart
+  # ---------------------------------------------------------------------------
+  # fonts:
+  #   - family: FigmaSans
+  #     fonts:
+  #       - asset: assets/fonts/FigmaSans-Regular.ttf
+  #         weight: 400
+  #       - asset: assets/fonts/FigmaSans-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/FigmaSans-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/FigmaSans-Bold.ttf
+  #         weight: 700

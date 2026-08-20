@@ -1,0 +1,182 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "0. Diagnose: what does this terminal see?",
+      "detail": "Prints which python/flutter this exact terminal resolves, and where they came from.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\diagnose.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "▶ RUN EVERYTHING (server + Chrome)",
+      "detail": "Starts the Python server and the Flutter app in two integrated terminals. Nothing opens outside VS Code.",
+      "dependsOn": [
+        "1. Start inference server",
+        "Flutter: run in Chrome"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "1. Start inference server",
+      "detail": "Runs ws_server.py and prints the ws:// address for the phone. Leave running.",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "server.ws_server"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}\\upper_body_ai"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "therayu",
+        "close": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "2. Show my LAN IP",
+      "detail": "Prints the address to type into the phone app.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet|WSL' } | Select-Object InterfaceAlias, IPAddress | Format-Table -AutoSize"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: create venv and install Python deps",
+      "detail": "One-time. Creates .venv and installs the engine + server requirements.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\setup_python.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: install Flutter + generate platforms",
+      "detail": "One-time. Downloads the Flutter SDK if missing, scaffolds web/ and android/, patches the manifest.",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\setup_flutter.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: list devices",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "devices"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}\\therayu_app"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: build release APK",
+      "detail": "Output lands in therayu_app/build/app/outputs/flutter-apk/app-release.apk",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "apk",
+        "--release"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}\\therayu_app"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: analyze",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "analyze"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}\\therayu_app"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flutter: run in Chrome",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "chrome"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}\\therayu_app"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "therayu",
+        "close": false
+      },
+      "problemMatcher": [],
+      "isBackground": true
+    }
+  ]
+}

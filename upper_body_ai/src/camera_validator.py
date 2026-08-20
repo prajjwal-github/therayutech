@@ -46,10 +46,15 @@ class CameraValidator:
         - status_badge (str): Short status label ("✅ Full Body Detected" or "⚠️ Positioning Needed").
         - missing_landmarks (list): List of required landmarks failing validation.
         """
-        if not landmarks_dict:
-            return False, "Waiting for full body detection...", "⚠️ No Person Detected", []
-
         profile_key = exercise_profile.upper() if exercise_profile.upper() in self.EXERCISE_PROFILES else "FULL_BODY_YOGA"
+
+        if not landmarks_dict:
+            waiting = {
+                "UPPER_BODY": "Waiting for upper body detection...",
+                "LOWER_BODY": "Waiting for lower body detection...",
+            }.get(profile_key, "Waiting for full body detection...")
+            return False, waiting, "⚠️ No Person Detected", []
+
         required_landmarks = self.EXERCISE_PROFILES[profile_key]
 
         missing_landmarks = []
@@ -89,23 +94,74 @@ class CameraValidator:
 
         # Generate Real-Time Smart Guidance Message
         if is_ready:
-            guidance_msg = "✅ Full Body Detected | Ready to Begin"
+            subject = {
+                "UPPER_BODY": "Upper Body",
+                "LOWER_BODY": "Lower Body",
+            }.get(profile_key, "Full Body")
+            guidance_msg = f"✅ {subject} Detected | Ready to Begin"
             status_badge = "✅ Ready to Begin"
         else:
             status_badge = "⚠️ Insufficient Visibility"
-            if out_of_bounds_top and out_of_bounds_bottom:
-                guidance_msg = "Please step back from the camera"
-            elif out_of_bounds_bottom or any("ANKLE" in k or "FOOT" in k or "KNEE" in k for k in missing_landmarks):
-                guidance_msg = "Please step back - Lower body not visible"
-            elif out_of_bounds_top or "NOSE" in missing_landmarks or "C7_NECK" in missing_landmarks:
-                guidance_msg = "Move down / Adjust camera angle"
-            elif out_of_bounds_left:
-                guidance_msg = "Move slightly to the right"
-            elif out_of_bounds_right:
-                guidance_msg = "Move slightly to the left"
-            elif any("WRIST" in k or "ELBOW" in k for k in missing_landmarks):
-                guidance_msg = "Keep both arms inside the frame"
-            else:
-                guidance_msg = "Keep your full body inside the frame"
+            guidance_msg = self._guidance_for(
+                profile_key,
+                missing_landmarks,
+                out_of_bounds_top,
+                out_of_bounds_bottom,
+                out_of_bounds_left,
+                out_of_bounds_right,
+            )
 
         return is_ready, guidance_msg, status_badge, missing_landmarks
+
+    def _guidance_for(self, profile_key, missing, oob_top, oob_bottom, oob_left, oob_right):
+        """
+        Turns a validation failure into advice that fits the exercise.
+
+        The guidance used to be written for FULL_BODY and reused verbatim for
+        every profile, so a patient doing an upper-body assessment whose wrist
+        dropped below the frame was told "step back - lower body not visible" —
+        advice about legs the profile does not even track, and the wrong
+        correction for the problem they actually had. Guidance is only useful if
+        it names something the patient can act on, so each profile gets wording
+        drawn from the landmarks it actually requires.
+        """
+        upper_only = profile_key == "UPPER_BODY"
+        lower_only = profile_key == "LOWER_BODY"
+
+        # Left/right corrections are unambiguous and apply to every profile, so
+        # they are checked first when only one side has gone out of frame.
+        if oob_left and not oob_right:
+            return "Move slightly to the right"
+        if oob_right and not oob_left:
+            return "Move slightly to the left"
+
+        if oob_top and oob_bottom:
+            return "Please step back from the camera"
+
+        if upper_only:
+            if oob_top or "NOSE" in missing or "C7_NECK" in missing:
+                return "Move back or tilt the camera up - head not fully visible"
+            if oob_bottom or any("WRIST" in k for k in missing):
+                return "Keep both hands inside the frame"
+            if any("ELBOW" in k or "SHOULDER" in k for k in missing):
+                return "Keep both arms and shoulders inside the frame"
+            return "Keep your head, shoulders and arms inside the frame"
+
+        if lower_only:
+            if oob_bottom or any("ANKLE" in k or "FOOT" in k for k in missing):
+                return "Please step back - feet not visible"
+            if oob_top or any("HIP" in k for k in missing):
+                return "Move back - hips not visible"
+            if any("KNEE" in k for k in missing):
+                return "Keep both knees inside the frame"
+            return "Keep your hips, knees and feet inside the frame"
+
+        # FULL_BODY / FULL_BODY_YOGA
+        if oob_bottom or any("ANKLE" in k or "FOOT" in k or "KNEE" in k for k in missing):
+            return "Please step back - Lower body not visible"
+        if oob_top or "NOSE" in missing or "C7_NECK" in missing:
+            return "Move down / Adjust camera angle"
+        if any("WRIST" in k or "ELBOW" in k for k in missing):
+            return "Keep both arms inside the frame"
+        return "Keep your full body inside the frame"
+

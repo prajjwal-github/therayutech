@@ -1,6 +1,7 @@
 import os
 import json
 import yaml
+# pyrefly: ignore [missing-import]
 from src.trainer import UpperBodyModelTrainer
 
 def load_annotations_from_dir(anno_dir):

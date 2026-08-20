@@ -89,7 +89,12 @@ class RealTimeInferencePipeline:
         smoothed_landmarks = self.filter_manager.filter_landmarks(validated_landmarks, timestamp=t_start)
 
         # 4. Clinical Joint Angles & Medical Safety Policy ("No Fake Angles during Framing Pause")
-        raw_angles = self.physio_engine.compute_physio_metrics(smoothed_landmarks)
+        # The aspect ratio is required to undo MediaPipe's per-axis
+        # normalisation before any angle is computed; see
+        # PhysiotherapyAngleEngine's class docstring.
+        raw_angles = self.physio_engine.compute_physio_metrics(
+            smoothed_landmarks, frame_aspect=(w / h if h else 1.0)
+        )
         smoothed_angles = self.filter_manager.filter_angles(raw_angles, timestamp=t_start)
 
         if not is_ready:

@@ -1,0 +1,62 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Therayu in Chrome",
+      "detail": "Start here. No phone, no Android SDK - the browser supplies the camera.",
+      "request": "launch",
+      "type": "dart",
+      "program": "${workspaceFolder}/therayu_app/lib/main.dart",
+      "cwd": "${workspaceFolder}/therayu_app",
+      "deviceId": "chrome",
+      "flutterMode": "debug"
+    },
+    {
+      "name": "Inference server",
+      "detail": "The Python engine. Must be running before the app connects.",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "server.ws_server",
+      "cwd": "${workspaceFolder}/upper_body_ai",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Therayu on Android (release)",
+      "detail": "Needs a phone on the same Wi-Fi. Release, because debug builds make the frame repack the bottleneck.",
+      "request": "launch",
+      "type": "dart",
+      "program": "${workspaceFolder}/therayu_app/lib/main.dart",
+      "cwd": "${workspaceFolder}/therayu_app",
+      "flutterMode": "release"
+    },
+    {
+      "name": "Therayu on Android (profile)",
+      "detail": "Release-speed Dart plus the DevTools timeline.",
+      "request": "launch",
+      "type": "dart",
+      "program": "${workspaceFolder}/therayu_app/lib/main.dart",
+      "cwd": "${workspaceFolder}/therayu_app",
+      "flutterMode": "profile"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "▶ Server + Chrome  (start here)",
+      "detail": "Launches the Python server and opens the app in Chrome.",
+      "configurations": [
+        "Inference server",
+        "Therayu in Chrome"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "▶ Server + Android",
+      "configurations": [
+        "Inference server",
+        "Therayu on Android (release)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
