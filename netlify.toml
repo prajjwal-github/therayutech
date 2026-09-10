@@ -1,0 +1,44 @@
+# ==============================================================================
+# NETLIFY BUILD CONFIG
+# ==============================================================================
+# Netlify's build image has no Flutter SDK, so the build command fetches one.
+# A shallow clone of the stable channel costs roughly a minute; the whole build
+# lands well inside the 15 minute limit on the free tier.
+#
+# NOTE ON PATHS
+# `base` is deliberately NOT set. Netlify's docs are ambiguous about whether
+# `publish` is then resolved against the base directory or the repository root,
+# and getting it wrong fails the deploy with "publish directory not found".
+# Letting the build command cd into therayu_app itself keeps `publish`
+# unambiguously relative to the repository root.
+# ==============================================================================
+
+[build]
+  publish = "therayu_app/build/web"
+  command = """
+    git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter && \
+    export PATH="$HOME/flutter/bin:$PATH" && \
+    flutter --version && \
+    cd therayu_app && \
+    flutter config --enable-web && \
+    flutter pub get && \
+    flutter build web --release
+  """
+
+[build.environment]
+  # Flutter refuses to run as root without this on some CI images.
+  FLUTTER_SUPPRESS_ANALYTICS = "true"
+
+# Flutter web routes on the client, so every path must serve index.html rather
+# than 404 on a deep link or a refresh.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# getUserMedia only works on a secure origin. Netlify serves HTTPS already; this
+# just stops a downgrade from silently breaking the camera.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self)"

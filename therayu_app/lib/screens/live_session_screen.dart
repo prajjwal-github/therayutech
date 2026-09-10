@@ -10,6 +10,7 @@ import '../services/session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/angle_card.dart';
 import '../widgets/controls_sheet.dart';
+import '../widgets/exercise_runner.dart';
 import '../widgets/skeleton_painter.dart';
 import '../widgets/status_widgets.dart';
 
@@ -101,11 +102,57 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     }
   }
 
-  void _onSessionChanged() {
-    final message = widget.session.message;
-    if (message == null || !mounted) return;
+  /// Guards against opening the same sheet twice while it is already up.
+  /// The controller notifies on every frame, so without this a single saved
+  /// exercise would push a new sheet ten times a second.
+  bool _sheetOpen = false;
 
-    widget.session.clearMessage();
+  void _onSessionChanged() {
+    final session = widget.session;
+
+    if (!mounted) return;
+
+    // Open the records session as soon as the socket is live and a patient is
+    // attached. Doing it here rather than in initState is deliberate: the
+    // socket is usually still connecting when this screen is built, and the
+    // server can only attach a recorder to a live session.
+    if (session.patient != null &&
+        session.status.isLive &&
+        !session.inPatientSession &&
+        !_sheetOpen) {
+      session.beginPatientSession();
+    }
+
+    final result = session.lastResult;
+    if (result != null && !_sheetOpen) {
+      _sheetOpen = true;
+      ExerciseResultSheet.show(context, result, session)
+          .whenComplete(() => _sheetOpen = false);
+      return;
+    }
+
+    final summary = session.sessionSummary;
+    if (summary != null && !_sheetOpen) {
+      _sheetOpen = true;
+      SessionSummarySheet.show(context, summary, session)
+          .whenComplete(() => _sheetOpen = false);
+      return;
+    }
+
+    final recordsError = session.recordsError;
+    if (recordsError != null) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text(recordsError),
+          backgroundColor: AppPalette.danger,
+        ));
+    }
+
+    final message = session.message;
+    if (message == null) return;
+
+    session.clearMessage();
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(message)));
@@ -197,24 +244,38 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
                     _AssessmentStrip(session: session, compact: !isWide),
                   ],
 
+                  // ---- exercise runner ----
+                  // Only present when a patient is attached. A walk-up session
+                  // with no patient still behaves exactly as it always did.
+                  if (session.patient != null && _hudVisible)
+                    if (session.exerciseRunning)
+                      ExerciseHud(session: session, compact: !isWide)
+                    else
+                      ExercisePicker(session: session, compact: !isWide),
+
                   // ---- mode switcher ----
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: AppGaps.md),
-                        child: Center(
-                          child: BodyModeSwitcher(
-                            active: session.bodyMode,
-                            onChanged: session.setBodyMode,
+                  // Hidden while an exercise is recording: the exercise dictates
+                  // which body region is being measured, and letting the user
+                  // switch mid-movement would change what the stored result
+                  // actually means.
+                  if (!session.exerciseRunning)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(
+                        top: false,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: AppGaps.md),
+                          child: Center(
+                            child: BodyModeSwitcher(
+                              active: session.bodyMode,
+                              onChanged: session.setBodyMode,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               );
             },

@@ -77,6 +77,11 @@ class AppPalette {
   /// Scrim laid over the camera feed behind centred dialogs and banners.
   static const Color scrim = Color(0xD8061F26);
 
+  /// Fully transparent. Declared here rather than reaching for Colors.transparent
+  /// at call sites so the "no colour literals outside the theme" rule holds
+  /// without exception — the moment one file reaches into Colors, others follow.
+  static const Color transparent = Color(0x00000000);
+
   /// Light surface for the lower half of the login composition.
   static const Color surfaceOnLight = Color(0xFFFFFFFF);
 

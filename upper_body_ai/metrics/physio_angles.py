@@ -109,6 +109,38 @@ class PhysiotherapyAngleEngine:
                                     self._vec(pt_b, pt_c, aspect))
         return None if angle is None else float(round(angle, 1))
 
+    def _calculate_ankle_angle(self, knee_pt, ankle_pt, foot_pt, aspect):
+        """
+        Plantigrade ankle angle, or None when the view cannot support it.
+
+        The ankle is a SAGITTAL joint. Facing the camera the foot points almost
+        straight at the lens, so it projects onto a couple of pixels and the
+        knee-ankle-toe angle collapses towards 180 degrees. A real session
+        reported 172-175 degrees for a normally planted foot, which reads as an
+        extreme measurement rather than as no measurement at all.
+
+        The foreshortening is detectable without knowing the camera angle: if
+        the foot segment is short relative to the shin, the foot is pointing
+        away from the image plane and nothing about the ankle can be measured
+        from it. 35 percent is comfortably below a genuine side-on foot, which
+        runs about 60-80 percent of shin length, and comfortably above a
+        front-on one.
+        """
+        if not self._confident(knee_pt, ankle_pt, foot_pt):
+            return None
+
+        shin = self._vec(knee_pt, ankle_pt, aspect)
+        foot = self._vec(ankle_pt, foot_pt, aspect)
+
+        shin_len = float(np.linalg.norm(shin))
+        foot_len = float(np.linalg.norm(foot))
+        if shin_len <= 1e-9:
+            return None
+        if foot_len / shin_len < 0.35:
+            return None
+
+        return self._calculate_joint_angle(knee_pt, ankle_pt, foot_pt, aspect)
+
     def _tilt_from_vertical(self, pt_top, pt_bottom, aspect):
         """
         Deviation of a body segment from the image vertical, in degrees.
@@ -232,8 +264,8 @@ class PhysiotherapyAngleEngine:
         angles["right_shoulder_angle"] = angles["shoulder_abduction_right"]
 
         # 6. Ankle Angle (Left & Right): Interior Plantigrade Angle (90 deg = neutral standing foot)
-        angles["ankle_flexion_left"] = self._calculate_joint_angle(get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"), get_pt("LEFT_FOOT_INDEX"), aspect)
-        angles["ankle_flexion_right"] = self._calculate_joint_angle(get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"), get_pt("RIGHT_FOOT_INDEX"), aspect)
+        angles["ankle_flexion_left"] = self._calculate_ankle_angle(get_pt("LEFT_KNEE"), get_pt("LEFT_ANKLE"), get_pt("LEFT_FOOT_INDEX"), aspect)
+        angles["ankle_flexion_right"] = self._calculate_ankle_angle(get_pt("RIGHT_KNEE"), get_pt("RIGHT_ANKLE"), get_pt("RIGHT_FOOT_INDEX"), aspect)
 
         # 7. Trunk Spine Posture / Inclination Angle
         pelvis = get_pt("PELVIS_CENTER")

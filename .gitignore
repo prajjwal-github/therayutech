@@ -93,3 +93,8 @@ output/
 # Screen recordings used while debugging; not source.
 *.mp4
 *.mov
+
+# ---- Local database / runtime data ------------------------------------------
+upper_body_ai/data/
+upper_body_ai/records/__pycache__/
+

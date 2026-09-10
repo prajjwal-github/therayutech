@@ -26,7 +26,19 @@ class CameraValidator:
             "NOSE", "C7_NECK", "LEFT_SHOULDER", "RIGHT_SHOULDER",
             "LEFT_ELBOW", "RIGHT_ELBOW", "LEFT_WRIST", "RIGHT_WRIST"
         ],
+        # SHOULDERS ARE REQUIRED HERE, AND THEY ARE NOT A CLINICAL REQUIREMENT.
+        #
+        # MediaPipe Pose is a whole-body model: it aligns its region of interest
+        # on the torso and then infers the limbs. Shown a legs-only image it has
+        # nothing to anchor to and returns a scrambled skeleton - measured from a
+        # real session, hips landed ABOVE shoulders and ankles ABOVE knees, and
+        # the app happily reported "READY 91%" over the nonsense because the old
+        # profile only asked whether hips, knees and ankles were present.
+        #
+        # The head is still deliberately absent: a patient doing knee work does
+        # not need their face in shot, and the model does not need it either.
         "LOWER_BODY": [
+            "LEFT_SHOULDER", "RIGHT_SHOULDER",
             "LEFT_HIP", "RIGHT_HIP", "LEFT_KNEE", "RIGHT_KNEE",
             "LEFT_ANKLE", "RIGHT_ANKLE"
         ]
@@ -51,7 +63,7 @@ class CameraValidator:
         if not landmarks_dict:
             waiting = {
                 "UPPER_BODY": "Waiting for upper body detection...",
-                "LOWER_BODY": "Waiting for lower body detection...",
+                "LOWER_BODY": "Waiting for detection - stand back so your torso and legs are in shot...",
             }.get(profile_key, "Waiting for full body detection...")
             return False, waiting, "⚠️ No Person Detected", []
 
@@ -92,6 +104,15 @@ class CameraValidator:
 
         is_ready = len(missing_landmarks) == 0
 
+        # Even with every required landmark present and confident, the pose
+        # itself may be impossible. Checked last, so a simple framing problem is
+        # reported as a framing problem rather than as a tracking failure.
+        if is_ready:
+            plausible, reason = self._anatomically_plausible(landmarks_dict)
+            if not plausible:
+                return (False, reason, "\u26a0\ufe0f Tracking Unreliable",
+                        ["POSE_IMPLAUSIBLE"])
+
         # Generate Real-Time Smart Guidance Message
         if is_ready:
             subject = {
@@ -112,6 +133,74 @@ class CameraValidator:
             )
 
         return is_ready, guidance_msg, status_badge, missing_landmarks
+
+
+    # Vertical ordering that holds for any upright human, in image coordinates
+    # where y grows downward. Each entry is (upper, lower, label).
+    _UPRIGHT_ORDER = [
+        ("shoulders", "hips", "shoulders below the hips"),
+        ("hips", "knees", "hips below the knees"),
+        ("knees", "ankles", "knees below the ankles"),
+    ]
+
+    # How far a pair may invert before it counts as a real violation, as a
+    # fraction of image height. Landmarks jitter by a percent or so, and a deep
+    # squat legitimately brings hips close to knee height, so a small overlap
+    # must not trip the gate.
+    ORDER_TOLERANCE = 0.04
+
+    def _centre_y(self, landmarks_dict, names):
+        """Mean y of the named landmarks that are present and confident."""
+        ys = [landmarks_dict[n]["y"] for n in names
+              if n in landmarks_dict
+              and landmarks_dict[n].get("visibility", 1.0) >= self.min_confidence]
+        return sum(ys) / len(ys) if ys else None
+
+    def _anatomically_plausible(self, landmarks_dict):
+        """
+        Rejects a skeleton that could not belong to a standing person.
+
+        WHY THIS EXISTS
+        MediaPipe always returns a full 33-point pose, even when the image
+        cannot support one. Fed a legs-only frame it produced hips above
+        shoulders, a nose below both, and ankles above knees - and every
+        landmark carried a visibility of 0.9 or better, so confidence checks
+        passed it straight through. Confidence says how sure the model is about
+        a point, not whether the arrangement of points makes sense.
+
+        The test is deliberately crude: for an upright patient, shoulders sit
+        above hips, hips above knees, knees above ankles. Any pair that inverts
+        by more than a tolerance means the estimate has collapsed, and no angle
+        derived from it is worth reporting.
+
+        Returns (ok, reason).
+        """
+        groups = {
+            "shoulders": ("LEFT_SHOULDER", "RIGHT_SHOULDER"),
+            "hips": ("LEFT_HIP", "RIGHT_HIP"),
+            "knees": ("LEFT_KNEE", "RIGHT_KNEE"),
+            "ankles": ("LEFT_ANKLE", "RIGHT_ANKLE"),
+        }
+        centres = {k: self._centre_y(landmarks_dict, v) for k, v in groups.items()}
+
+        for upper, lower, _label in self._UPRIGHT_ORDER:
+            y_up, y_low = centres.get(upper), centres.get(lower)
+            if y_up is None or y_low is None:
+                continue  # not enough of the body in shot to judge this pair
+            if y_up > y_low + self.ORDER_TOLERANCE:
+                return False, ("Tracking lost - step back so more of your body "
+                               "is in view")
+
+        # The head, when visible, must sit above the shoulders.
+        nose = landmarks_dict.get("NOSE")
+        y_sh = centres.get("shoulders")
+        if (nose and y_sh is not None
+                and nose.get("visibility", 1.0) >= self.min_confidence
+                and nose["y"] > y_sh + self.ORDER_TOLERANCE):
+            return False, ("Tracking lost - step back so more of your body "
+                           "is in view")
+
+        return True, ""
 
     def _guidance_for(self, profile_key, missing, oob_top, oob_bottom, oob_left, oob_right):
         """
@@ -148,13 +237,20 @@ class CameraValidator:
             return "Keep your head, shoulders and arms inside the frame"
 
         if lower_only:
+            # Shoulders first. They are the most likely thing missing when a
+            # patient stands too close for leg work, and the message has to
+            # explain WHY a leg exercise wants the torso in shot - otherwise it
+            # reads as a bug rather than an instruction.
+            if any("SHOULDER" in k for k in missing):
+                return ("Step back - your torso must be in shot for leg "
+                        "tracking to work")
             if oob_bottom or any("ANKLE" in k or "FOOT" in k for k in missing):
                 return "Please step back - feet not visible"
             if oob_top or any("HIP" in k for k in missing):
                 return "Move back - hips not visible"
             if any("KNEE" in k for k in missing):
                 return "Keep both knees inside the frame"
-            return "Keep your hips, knees and feet inside the frame"
+            return "Step back so your torso, hips, knees and feet are all in shot"
 
         # FULL_BODY / FULL_BODY_YOGA
         if oob_bottom or any("ANKLE" in k or "FOOT" in k or "KNEE" in k for k in missing):

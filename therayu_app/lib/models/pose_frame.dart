@@ -204,6 +204,8 @@ class PoseFrame {
     required this.trackId,
     required this.bodyMode,
     required this.isRecording,
+    this.exerciseActive = false,
+    this.exerciseReps = 0,
     required this.frameWidth,
     required this.frameHeight,
   });
@@ -242,6 +244,8 @@ class PoseFrame {
       trackId: (json['track_id'] as num?)?.toInt() ?? 1,
       bodyMode: BodyMode.fromWire(json['body_mode'] as String?),
       isRecording: json['is_recording'] == true,
+      exerciseActive: json['exercise_active'] == true,
+      exerciseReps: (json['exercise_reps'] as num?)?.toInt() ?? 0,
       frameWidth: (json['frame_w'] as num?)?.toInt() ?? 0,
       frameHeight: (json['frame_h'] as num?)?.toInt() ?? 0,
     );
@@ -256,6 +260,8 @@ class PoseFrame {
         trackId = 1,
         bodyMode = BodyMode.fullBody,
         isRecording = false,
+        exerciseActive = false,
+        exerciseReps = 0,
         frameWidth = 0,
         frameHeight = 0;
 
@@ -271,6 +277,17 @@ class PoseFrame {
   final int trackId;
   final BodyMode bodyMode;
   final bool isRecording;
+
+  /// True while the server has a records SessionRecorder attached.
+  final bool exerciseActive;
+
+  /// Reps the SERVER has counted so far in the current exercise.
+  ///
+  /// Counted server-side rather than in Dart on purpose: the rep state machine
+  /// and the angles it watches live in one place, so the number on screen during
+  /// the movement is the same number that gets written to the patient record.
+  /// Re-deriving it here would be a second implementation free to disagree.
+  final int exerciseReps;
 
   /// Dimensions of the upright, already-mirrored frame the landmarks were
   /// normalised against. The overlay uses this aspect ratio so the skeleton

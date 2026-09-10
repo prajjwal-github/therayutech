@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/pose_frame.dart';
+import '../models/records.dart';
 import '../models/skeleton_topology.dart';
 import 'camera_streamer.dart';
+import 'records_api.dart';
 import 'pose_interpolator.dart';
 import 'pose_socket.dart';
 
@@ -30,6 +32,7 @@ class SessionController extends ChangeNotifier {
     _frameSub = _socket.frames.listen(_onPoseFrame);
     _statusSub = _socket.status.listen(_onSocketStatus);
     _errorSub = _socket.errors.listen(_onSocketError);
+    _recordsSub = _socket.records.listen(_onRecordsMessage);
 
     _camera.addListener(notifyListeners);
 
@@ -59,6 +62,7 @@ class SessionController extends ChangeNotifier {
   StreamSubscription<PoseFrame>? _frameSub;
   StreamSubscription<SocketStatus>? _statusSub;
   StreamSubscription<String>? _errorSub;
+  StreamSubscription<Map<String, dynamic>>? _recordsSub;
 
   /// Reconciles "should be streaming" against "is streaming", once a second.
   ///
@@ -75,6 +79,95 @@ class SessionController extends ChangeNotifier {
 
   CameraStreamer get camera => _camera;
   PoseSocket get socket => _socket;
+
+  /// REST client for patient administration. Shares the address the user typed
+  /// for the socket, so the two can never point at different machines.
+  final RecordsApi api = RecordsApi();
+
+  // --------------------------------------------------------------------------
+  // PATIENT RECORDS STATE
+  // --------------------------------------------------------------------------
+
+  /// Whether the connected server actually has the records API. An older build
+  /// of the server still runs the live view perfectly; the patient features are
+  /// simply hidden rather than throwing when tapped.
+  bool _recordsAvailable = false;
+  bool get recordsAvailable => _recordsAvailable;
+
+  Patient? _patient;
+  Patient? get patient => _patient;
+
+  TodaysPlan? _plan;
+  TodaysPlan? get plan => _plan;
+
+  int? _recordsSessionId;
+  int? get recordsSessionId => _recordsSessionId;
+  bool get inPatientSession => _recordsSessionId != null;
+
+  int _dayIndex = 1;
+  int get dayIndex => _dayIndex;
+
+  /// The exercise currently being recorded, if any.
+  PlannedExercise? _activeExercise;
+  PlannedExercise? get activeExercise => _activeExercise;
+  bool get exerciseRunning => _activeExercise != null;
+
+  /// Codes of exercises already completed this session, so the plan list can
+  /// tick them off and the runner knows what is left.
+  final Set<int> _completedExerciseIds = <int>{};
+  Set<int> get completedExerciseIds => Set.unmodifiable(_completedExerciseIds);
+
+  /// The result of the exercise that just finished, shown in a sheet.
+  ExerciseResult? _lastResult;
+  ExerciseResult? get lastResult => _lastResult;
+  void clearLastResult() {
+    _lastResult = null;
+    notifyListeners();
+  }
+
+  /// Populated when the whole session is closed out.
+  Map<String, dynamic>? _sessionSummary;
+  Map<String, dynamic>? get sessionSummary => _sessionSummary;
+  void clearSessionSummary() {
+    _sessionSummary = null;
+    notifyListeners();
+  }
+
+  String? _recordsError;
+  String? get recordsError => _recordsError;
+
+  /// Live value of the joint this exercise is scored on, straight from the
+  /// current frame. Null when nothing is being measured.
+  double? get activeJointValue {
+    final ex = _activeExercise;
+    if (ex == null) return null;
+    final v = _frame.angles[ex.primaryJoint];
+    return v is num && v > 0 ? v.toDouble() : null;
+  }
+
+  /// Reps the server has counted in the current exercise.
+  int get activeReps => _frame.exerciseReps;
+
+  /// How far through the prescribed work the patient is, 0..1.
+  double get exerciseProgress {
+    final ex = _activeExercise;
+    if (ex == null) return 0;
+    if (ex.isHold) {
+      final target = ex.targetHoldSec;
+      if (target == null || target <= 0) return 0;
+      return (_holdSeconds / target).clamp(0.0, 1.0);
+    }
+    final target = ex.targetReps;
+    if (target == null || target <= 0) return 0;
+    return (activeReps / target).clamp(0.0, 1.0);
+  }
+
+  /// Seconds the patient has been inside the target band on a HOLD exercise.
+  /// Tracked here only for the on-screen ring; the authoritative figure is
+  /// computed server-side and stored with the result.
+  double _holdSeconds = 0;
+  double get holdSeconds => _holdSeconds;
+  DateTime? _lastHoldTick;
 
   /// Smooths the ~10 fps landmark stream up to display rate. See
   /// [PoseInterpolator] for why angles are deliberately left alone.
@@ -233,8 +326,21 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  /// Records the address without opening the socket.
+  ///
+  /// The patient screens talk REST, not WebSocket, so they need the address
+  /// resolved before any video starts — a clinician browsing the caseload has
+  /// no reason to have the camera streaming.
+  void setServerUrl(String url) {
+    _serverUrl = url.trim();
+    api.configureFromSocketUrl(_serverUrl);
+    _persist();
+    notifyListeners();
+  }
+
   Future<void> connect(String url) async {
     _serverUrl = url.trim();
+    api.configureFromSocketUrl(_serverUrl);
     _message = null;
     notifyListeners();
 
@@ -248,10 +354,43 @@ class SessionController extends ChangeNotifier {
     _isRecording = false;
     _sessionStart = null;
     _liveSince = null;
+    _recordsSessionId = null;
+    _activeExercise = null;
     _frame = const PoseFrame.empty();
     poseInterpolator.reset();
     await WakelockPlus.disable();
     notifyListeners();
+  }
+
+  /// Advances the on-screen hold timer while the patient is inside the band.
+  ///
+  /// Driven by frame arrival rather than a wall clock so it cannot keep counting
+  /// when tracking has dropped out — a hold only counts while the joint is
+  /// actually being measured.
+  void _tickHold(PoseFrame frame) {
+    final ex = _activeExercise;
+    if (ex == null || !ex.isHold) {
+      _lastHoldTick = null;
+      return;
+    }
+
+    final value = frame.angles[ex.primaryJoint];
+    final now = DateTime.now();
+    final inBand = value is num &&
+        value > 0 &&
+        (ex.bandMinDeg == null || value >= ex.bandMinDeg!) &&
+        (ex.bandMaxDeg == null || value <= ex.bandMaxDeg!);
+
+    if (inBand && frame.telemetry.isReady) {
+      final last = _lastHoldTick;
+      if (last != null) {
+        final dt = now.difference(last).inMilliseconds / 1000.0;
+        if (dt > 0 && dt < 1.0) _holdSeconds += dt;
+      }
+      _lastHoldTick = now;
+    } else {
+      _lastHoldTick = null;
+    }
   }
 
   void _onSocketStatus(SocketStatus status) {
@@ -275,6 +414,136 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --------------------------------------------------------------------------
+  // PATIENT RECORDS ACTIONS
+  // --------------------------------------------------------------------------
+
+  /// Checks whether this server can store records, and points the REST client
+  /// at the same host as the socket.
+  Future<void> refreshRecordsAvailability() async {
+    api.configureFromSocketUrl(_serverUrl);
+    _recordsAvailable = await api.isAvailable();
+    notifyListeners();
+  }
+
+  /// Loads a patient and their prescription without starting anything.
+  Future<void> selectPatient(Patient patient) async {
+    _patient = patient;
+    _recordsError = null;
+    notifyListeners();
+    try {
+      final plan = await api.todaysPlan(patient.id);
+      _plan = plan;
+      _dayIndex = plan.dayIndex;
+    } on RecordsApiException catch (e) {
+      _recordsError = e.message;
+    }
+    notifyListeners();
+  }
+
+  void clearPatient() {
+    _patient = null;
+    _plan = null;
+    _recordsSessionId = null;
+    _activeExercise = null;
+    _completedExerciseIds.clear();
+    notifyListeners();
+  }
+
+  /// Opens a records session on the server. Must be live: the recorder attaches
+  /// to the same PhysioSession that is processing this client's video.
+  void beginPatientSession() {
+    final patient = _patient;
+    if (patient == null || !_status.isLive) return;
+    _completedExerciseIds.clear();
+    _socket.startRecordsSession(patient.id);
+  }
+
+  void startExercise(PlannedExercise exercise) {
+    if (!_status.isLive || !inPatientSession) return;
+    _holdSeconds = 0;
+    _lastHoldTick = null;
+    _socket.startExercise(exercise.exerciseId, sequence: exercise.sequence);
+  }
+
+  void stopExercise({bool aborted = false}) {
+    if (_activeExercise == null) return;
+    _socket.stopExercise(aborted: aborted);
+  }
+
+  void endPatientSession({String? notes}) {
+    if (!inPatientSession) return;
+    _socket.endRecordsSession(notes: notes);
+  }
+
+  /// Records how the exercise felt. Optional, and deliberately non-blocking:
+  /// a failed save must not stand between the patient and the next movement.
+  Future<void> submitPainScore(int resultId, int pain) async {
+    try {
+      await api.saveReported(resultId, painScore: pain);
+    } on RecordsApiException catch (e) {
+      _recordsError = e.message;
+      notifyListeners();
+    }
+  }
+
+  void _onRecordsMessage(Map<String, dynamic> msg) {
+    switch (msg['type']) {
+      case 'session_started':
+        _recordsSessionId = (msg['session_id'] as num?)?.toInt();
+        _dayIndex = (msg['day_index'] as num?)?.toInt() ?? 1;
+        _recordsError = null;
+        final list = (msg['exercises'] as List?) ?? const [];
+        if (list.isNotEmpty) {
+          _plan = TodaysPlan(
+            patient: _patient!,
+            exercises: list
+                .map((e) => PlannedExercise.fromJson(Map<String, dynamic>.from(e as Map)))
+                .toList(),
+            conditionName: msg['condition'] as String?,
+            dayIndex: _dayIndex,
+          );
+        }
+
+      case 'exercise_started':
+        _activeExercise = PlannedExercise.fromJson(Map<String, dynamic>.from(msg));
+        _holdSeconds = 0;
+        _lastHoldTick = null;
+        _recordsError = null;
+
+        // Keep the pose profile aligned with what the exercise measures — the
+        // server switched its own mode, and the client must follow or the
+        // skeleton and the guidance will describe different body regions.
+        final mode = BodyMode.fromWire(msg['body_mode'] as String?);
+        if (mode != _bodyMode) {
+          _bodyMode = mode;
+          _camera.bodyMode = mode;
+        }
+
+      case 'exercise_saved':
+        final finished = _activeExercise;
+        _activeExercise = null;
+        _holdSeconds = 0;
+        if (finished != null) {
+          _completedExerciseIds.add(finished.exerciseId);
+        }
+        _lastResult = ExerciseResult.fromSaved(
+          Map<String, dynamic>.from(msg),
+          finished?.name ?? 'Exercise',
+        );
+
+      case 'session_ended':
+        _sessionSummary = Map<String, dynamic>.from(msg);
+        _recordsSessionId = null;
+        _activeExercise = null;
+
+      case 'records_error':
+        _recordsError = msg['message']?.toString() ?? 'Records error';
+        _activeExercise = null;
+    }
+    notifyListeners();
+  }
+
   void _onSocketError(String error) {
     _message = error;
     notifyListeners();
@@ -282,6 +551,7 @@ class SessionController extends ChangeNotifier {
 
   void _onPoseFrame(PoseFrame frame) {
     _frame = frame;
+    _tickHold(frame);
     _isRecording = frame.isRecording;
 
     // Landmarks go to the interpolator, which the painter samples at display
@@ -414,6 +684,7 @@ class SessionController extends ChangeNotifier {
     _supervisor?.cancel();
     _frameSub?.cancel();
     _statusSub?.cancel();
+    _recordsSub?.cancel();
     _errorSub?.cancel();
     _camera.removeListener(notifyListeners);
     poseInterpolator.dispose();

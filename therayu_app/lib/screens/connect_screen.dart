@@ -6,6 +6,7 @@ import '../services/session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand.dart';
 import 'live_session_screen.dart';
+import 'patients_screen.dart';
 
 /// ============================================================================
 /// CONNECT SCREEN
@@ -55,6 +56,44 @@ class _ConnectScreenState extends State<ConnectScreen> {
       _testOk = result.ok;
       _testResult = result.detail;
     });
+  }
+
+  /// Opens the caseload. Connects first, because the patient screens read from
+  /// the same server that runs inference and there is no point showing an empty
+  /// list caused by an address that was never reachable.
+  Future<void> _openPatients() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      setState(() {
+        _testOk = false;
+        _testResult = 'Enter the PC\'s address first.';
+      });
+      return;
+    }
+
+    final session = widget.session;
+    session.setServerUrl(url);
+    await session.refreshRecordsAvailability();
+    if (!mounted) return;
+
+    if (!session.recordsAvailable) {
+      setState(() {
+        _testOk = false;
+        _testResult =
+            'This server has no records API. Restart it after running '
+            '"python -m records.seed".';
+      });
+      return;
+    }
+
+    session.clearPatient();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PatientsScreen(session: session),
+      ),
+    );
+    if (!mounted) return;
+    await session.disconnect();
   }
 
   Future<void> _start() async {
@@ -190,9 +229,20 @@ class _ConnectScreenState extends State<ConnectScreen> {
                       ),
                       const SizedBox(height: AppGaps.md),
                       FilledButton.icon(
+                        onPressed: _openPatients,
+                        icon: const Icon(Icons.folder_shared_outlined),
+                        label: const Text('Patients & records'),
+                      ),
+                      const SizedBox(height: AppGaps.sm),
+
+                      // The unrecorded path is kept, and kept secondary. It is
+                      // genuinely useful for checking framing or demonstrating
+                      // the tool, but a session that goes nowhere should not be
+                      // the most prominent button on the screen.
+                      OutlinedButton.icon(
                         onPressed: _start,
-                        icon: const Icon(Icons.play_arrow_rounded),
-                        label: const Text('Start live session'),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('Quick session (not recorded)'),
                       ),
 
                       if (session.camera.error != null) ...[

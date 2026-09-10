@@ -271,6 +271,15 @@ class PhysioSession:
         self.client_label = client_label
         self.body_mode = "FULL_BODY"
 
+        # -- patient records ---------------------------------------------------
+        # Populated by the exercise_start / exercise_stop control messages. When
+        # `recorder` is None the server behaves exactly as it did before records
+        # existed, so an unregistered walk-up session still works.
+        self.records_session_id: Optional[int] = None
+        self.records_patient_id: Optional[int] = None
+        self.recorder = None
+        self.recorder_context: Dict[str, Any] = {}
+
         # smooth_landmarks=False, deliberately.
         #
         # This is the single largest remaining source of visible lag, and it is
@@ -467,6 +476,16 @@ class PhysioSession:
         analysis_ms = (time.perf_counter() - t_analysis) * 1000.0
         telemetry["analysis_ms"] = round(analysis_ms, 1)
 
+        # Records layer. A pure consumer of what the engine just produced: it is
+        # handed the finished dicts and cannot feed anything back. Wrapped in
+        # try/except on purpose — a bookkeeping fault must never take down the
+        # live clinical view the patient is standing in front of.
+        if self.recorder is not None:
+            try:
+                self.recorder.on_frame(angles_dict, physio_telemetry)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[{self.client_label}] recorder error (ignored): {exc}")
+
         active_tracks = []
         if landmarks_dict and telemetry.get("person_detected", False):
             active_tracks = self.tracker.update([landmarks_dict])
@@ -501,6 +520,9 @@ class PhysioSession:
             "body_mode": self.body_mode,
             "is_recording": bool(self.logger.is_recording),
             "hands_enabled": bool(self.hands_enabled),
+            "exercise_active": self.recorder is not None,
+            "exercise_reps": (self.recorder._reps if self.recorder is not None else 0),
+            "records_session_id": self.records_session_id,
             "server_fps": round(self._fps, 1),
             "frame_w": int(w),
             "frame_h": int(h),
@@ -546,6 +568,30 @@ app.add_middleware(
 _stats = {"connections": 0, "frames": 0, "dropped": 0, "started": time.time()}
 
 
+# ------------------------------------------------------------------------------
+# PATIENT RECORDS API
+# ------------------------------------------------------------------------------
+# Mounted, not merged. Records live behind /api on the same port so the Flutter
+# client needs one address, but the router is a separate module and the
+# WebSocket frame path above is unchanged.
+#
+# Failure here is non-fatal by design: if the records package cannot load, the
+# server still does what it has always done and the app simply cannot save
+# sessions.
+try:
+    from records.api import router as records_router
+    from records import get_db
+
+    app.include_router(records_router)
+    _RECORDS_DB = get_db()
+    RECORDS_AVAILABLE = True
+    print(f"[records] database ready: {_RECORDS_DB.path}")
+except Exception as _rec_exc:  # noqa: BLE001
+    RECORDS_AVAILABLE = False
+    print(f"[records] DISABLED — {type(_rec_exc).__name__}: {_rec_exc}")
+    print("[records] the live view is unaffected; sessions just will not be saved.")
+
+
 @app.get("/health")
 async def health() -> JSONResponse:
     """Used by the Flutter app's 'Test connection' button before opening the socket."""
@@ -573,6 +619,194 @@ async def index() -> HTMLResponse:
         "<p style='color:#8FA3BF'>Phone and PC must be on the same Wi-Fi network.</p>"
         "</body></html>"
     )
+
+
+
+# ====================================================================================
+# PATIENT RECORDS — WEBSOCKET CONTROL HANDLERS
+# ====================================================================================
+# These sit between the live socket and the records package. They exist here, in
+# the server, rather than inside `records/` because they need the live
+# PhysioSession; `records/` itself stays free of any dependency on the inference
+# stack so it can be tested without a camera or a model.
+#
+# Every handler returns a plain dict for the socket and never raises: a records
+# fault must degrade to "recording unavailable", not interrupt a patient's
+# session.
+# ====================================================================================
+
+def _records_repo():
+    from records import get_db, Repository
+    return Repository(get_db())
+
+
+def _records_error(stage: str, exc: Exception) -> Dict[str, Any]:
+    print(f"[records] {stage} failed: {type(exc).__name__}: {exc}")
+    traceback.print_exc()
+    return {"type": "records_error", "stage": stage,
+            "message": f"{type(exc).__name__}: {exc}"}
+
+
+def _records_session_start(session: "PhysioSession", ctl: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        patient_id = int(ctl.get("patient_id"))
+        repo = _records_repo()
+        rec_session = repo.start_session(patient_id, notes=ctl.get("notes"))
+        session.records_session_id = rec_session["id"]
+        session.records_patient_id = patient_id
+
+        # A fresh ROM accumulator per patient session, so yesterday's peaks do
+        # not leak into today's numbers.
+        session.reset_rom()
+
+        plan = repo.todays_plan(patient_id)
+        return {"type": "session_started",
+                "session_id": rec_session["id"],
+                "day_index": rec_session["day_index"],
+                "patient": plan["patient"],
+                "condition": (plan["assignment"] or {}).get("condition_name"),
+                "exercises": plan["exercises"]}
+    except Exception as exc:  # noqa: BLE001
+        return _records_error("session_start", exc)
+
+
+def _records_exercise_start(session: "PhysioSession", ctl: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from records import SessionRecorder
+
+        if session.records_session_id is None:
+            return {"type": "records_error", "stage": "exercise_start",
+                    "message": "No records session open. Send session_start first."}
+
+        exercise_id = int(ctl.get("exercise_id"))
+        repo = _records_repo()
+        rec_session = repo.get_session(session.records_session_id)
+        exercise = repo.get_exercise(exercise_id)
+        if not exercise:
+            return {"type": "records_error", "stage": "exercise_start",
+                    "message": f"unknown exercise {exercise_id}"}
+
+        # Targets come from the protocol for the condition the patient is on.
+        protocol_row: Dict[str, Any] = {}
+        if rec_session and rec_session.get("condition_id"):
+            for row in repo.protocol_for_condition(rec_session["condition_id"]):
+                if row["exercise_id"] == exercise_id:
+                    protocol_row = row
+                    break
+
+        # Switch the pose profile to whatever this exercise needs, so the patient
+        # is not left in upper-body mode for a knee exercise.
+        if exercise.get("body_mode"):
+            session.set_mode(exercise["body_mode"])
+
+        recorder = SessionRecorder(exercise=exercise, protocol=protocol_row)
+        recorder.start()
+        session.recorder = recorder
+        session.recorder_context = {
+            "exercise": exercise,
+            "protocol": protocol_row,
+            "sequence": int(ctl.get("sequence", protocol_row.get("sequence", 1))),
+        }
+        return {"type": "exercise_started",
+                "exercise_id": exercise_id,
+                "name": exercise["name"],
+                "body_mode": exercise.get("body_mode"),
+                "primary_joint": exercise["primary_joint"],
+                "movement_type": exercise.get("movement_type"),
+                "goal": exercise.get("goal"),
+                "instructions": exercise.get("instructions"),
+                "target_rom_deg": protocol_row.get("target_rom_deg"),
+                "target_reps": protocol_row.get("target_reps"),
+                "target_hold_sec": protocol_row.get("target_hold_sec"),
+                "band_min_deg": protocol_row.get("band_min_deg"),
+                "band_max_deg": protocol_row.get("band_max_deg")}
+    except Exception as exc:  # noqa: BLE001
+        return _records_error("exercise_start", exc)
+
+
+def _records_exercise_stop(session: "PhysioSession", ctl: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        recorder = session.recorder
+        if recorder is None:
+            return {"type": "records_error", "stage": "exercise_stop",
+                    "message": "no exercise in progress"}
+
+        aborted = bool(ctl.get("aborted"))
+        summary = recorder.abort() if aborted else recorder.finish()
+        joints = recorder.joint_summaries()
+        samples = recorder.samples
+
+        ctx = session.recorder_context or {}
+        exercise = ctx.get("exercise", {})
+        session.recorder = None
+        session.recorder_context = {}
+
+        repo = _records_repo()
+
+        # The previous attempt at this same exercise, so the patient sees whether
+        # today beat last time without waiting for a report.
+        previous = None
+        if session.records_patient_id:
+            history = repo.exercise_history(session.records_patient_id, exercise["id"])
+            if history:
+                previous = history[-1]
+
+        saved = repo.save_exercise_result(
+            session_id=session.records_session_id,
+            exercise_id=exercise["id"],
+            summary=summary,
+            joint_summaries=joints,
+            samples=samples,
+            sequence=ctx.get("sequence", 1),
+        )
+
+        comparison = None
+        if previous:
+            metric = "rom_range_deg" if exercise.get("movement_type") == "REP" else "rom_max_deg"
+            prev_v, now_v = previous.get(metric), summary.get(metric)
+            if prev_v is not None and now_v is not None:
+                delta = round(now_v - prev_v, 1)
+                better = delta > 0 if exercise.get("goal", "INCREASE") == "INCREASE" else delta < 0
+                comparison = {"previous_day": previous["day_index"],
+                              "previous_value": prev_v,
+                              "current_value": now_v,
+                              "change_deg": delta,
+                              "improved": better}
+
+        return {"type": "exercise_saved",
+                "result_id": saved["id"],
+                "summary": summary,
+                "joints": joints,
+                "comparison": comparison}
+    except Exception as exc:  # noqa: BLE001
+        session.recorder = None
+        return _records_error("exercise_stop", exc)
+
+
+def _records_session_end(session: "PhysioSession", ctl: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        if session.records_session_id is None:
+            return {"type": "records_error", "stage": "session_end",
+                    "message": "no records session open"}
+
+        # An exercise still running when the session ends is saved, not lost,
+        # but flagged aborted so it is excluded from trend lines.
+        if session.recorder is not None:
+            _records_exercise_stop(session, {"aborted": True})
+
+        repo = _records_repo()
+        ended = repo.end_session(session.records_session_id, notes=ctl.get("notes"))
+        results = repo.results_for_session(session.records_session_id)
+        sid = session.records_session_id
+        session.records_session_id = None
+
+        return {"type": "session_ended",
+                "session_id": sid,
+                "day_index": (ended or {}).get("day_index"),
+                "exercises_completed": len([r for r in results if not r["aborted"]]),
+                "results": results}
+    except Exception as exc:  # noqa: BLE001
+        return _records_error("session_end", exc)
 
 
 @app.websocket("/ws")
@@ -704,6 +938,19 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     on = bool(ctl.get("on", not session.logger.is_recording))
                     rec = session.toggle_record(on, last_frame_for_capture["frame"])
                     await ws.send_text(json.dumps({"type": "ack", "is_recording": rec}))
+                elif kind == "session_start":
+                    # Patient has been identified; open a records session.
+                    reply = _records_session_start(session, ctl)
+                    await ws.send_text(json.dumps(reply))
+                elif kind == "session_end":
+                    reply = _records_session_end(session, ctl)
+                    await ws.send_text(json.dumps(reply))
+                elif kind == "exercise_start":
+                    reply = _records_exercise_start(session, ctl)
+                    await ws.send_text(json.dumps(reply))
+                elif kind == "exercise_stop":
+                    reply = _records_exercise_stop(session, ctl)
+                    await ws.send_text(json.dumps(reply))
                 elif kind == "ping":
                     await ws.send_text(json.dumps({"type": "pong", "t": ctl.get("t")}))
                 continue

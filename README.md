@@ -81,12 +81,59 @@ the mirrored preview.
 
 ---
 
-## Tests
+## Patient records
+
+A clinician assigns a condition to a patient; the exercise protocol follows from
+it. The patient picks their own name, works through the prescribed movements, and
+every attempt is recorded against a day number.
+
+```
+Patients ▸ pick a patient ▸ assign a condition ▸ Start session
+    │
+    ├─ live view shows the current exercise, its target and a live rep count
+    ├─ Finish  ▸ result sheet: range, reps, quality, vs. last time, pain score
+    └─ all done ▸ session summary ▸ Progress tab ▸ Export doctor report (PDF)
+```
+
+Records live in one SQLite file at `upper_body_ai/data/therayu.db`. Nothing
+leaves the machine. Set it up once:
 
 ```bash
-python tests/test_body_modes.py        # all three profiles, end to end
-python tests/test_framing_guidance.py  # framing truth table per profile
-cd upper_body_ai && python ../tests/test_angle_accuracy.py
+cd upper_body_ai
+python -m records.seed          # 13 exercises, 9 conditions, 28 protocol rows
+```
+
+Protocols are data, not code — edit
+[`records/protocols_seed.yaml`](upper_body_ai/records/protocols_seed.yaml) and
+re-run the seeder. It upserts by code, so changing a target never disturbs a
+patient record.
+
+The records layer is a pure consumer of the clinical engine: it reads the angles
+the engine already produces and imports nothing from `metrics`, `inference`,
+`mediapipe` or `cv2`. A test asserts that.
+
+**Direction of improvement matters.** Shoulder range improving means a bigger
+number; trunk lean improving means a smaller one. Every exercise declares
+`goal: INCREASE` or `goal: REDUCE`, and the reports respect it — a patient whose
+posture is deteriorating is flagged, not congratulated.
+
+## Testing
+
+Handing this to someone to test? Point them at [TESTING.md](TESTING.md) — a
+fill-in checklist covering setup, all three body modes, framing guidance, angle
+accuracy against known poses, and robustness. They save a copy and send it back.
+
+Automated checks:
+
+```bash
+python tests/test_body_modes.py         # all three profiles, end to end
+python tests/test_framing_guidance.py   # framing truth table per profile
+python tests/test_api_contract.py       # every route and JSON key the app uses
+
+cd upper_body_ai
+python ../tests/test_angle_accuracy.py     # angles, and that z is ignored
+python ../tests/test_records_flow.py       # a simulated ten-day course
+python ../tests/test_records_websocket.py  # the live socket flow end to end
 ```
 
 `test_angle_accuracy.py` replays joint positions measured off rendered output and

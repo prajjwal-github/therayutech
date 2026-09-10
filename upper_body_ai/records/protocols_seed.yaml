@@ -1,0 +1,364 @@
+# =============================================================================
+# CONDITION -> EXERCISE PROTOCOLS
+# =============================================================================
+# EDIT THIS FILE, NOT THE CODE. It is re-read by `python -m records.seed`, which
+# upserts by `code`, so changing a target here and re-running updates the
+# catalogue without touching any patient record.
+#
+# THESE ARE STARTING POINTS, NOT A PRESCRIPTION. Targets are drawn from ordinary
+# goniometric norms; the supervising physiotherapist should set them per patient.
+#
+# -----------------------------------------------------------------------------
+# WHY shoulder_flexion IS ABSENT
+# The angle engine returns the string "SIDE VIEW REQ" for shoulder flexion,
+# because true sagittal flexion cannot be measured from a front-facing camera.
+# It is therefore not a usable target and no protocol below prescribes it.
+# Only joints the engine returns a NUMBER for can be scored.
+# -----------------------------------------------------------------------------
+#
+# goal:
+#   INCREASE - bigger is better (range of motion)
+#   REDUCE   - smaller is better (deviation from neutral, e.g. trunk lean)
+# =============================================================================
+
+exercises:
+  # ------------------------------------------------------------------ upper --
+  - code: SH_ABD_L
+    name: "Shoulder abduction: left"
+    body_mode: UPPER_BODY
+    primary_joint: shoulder_abduction_left
+    mirror_joint: shoulder_abduction_right
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      Stand facing the camera, arm straight. Raise the left arm sideways as far
+      as is comfortable, then lower under control. Keep the trunk upright.
+
+  - code: SH_ABD_R
+    name: "Shoulder abduction: right"
+    body_mode: UPPER_BODY
+    primary_joint: shoulder_abduction_right
+    mirror_joint: shoulder_abduction_left
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      As above, using the right arm.
+
+  - code: SH_ABD_HOLD
+    name: Shoulder abduction hold at 90 degrees
+    body_mode: UPPER_BODY
+    primary_joint: shoulder_abduction_left
+    mirror_joint: shoulder_abduction_right
+    movement_type: HOLD
+    goal: INCREASE
+    instructions: >
+      Raise both arms to shoulder height and hold steady. Isometric endurance.
+
+  - code: ELB_FLEX_L
+    name: "Elbow flexion: left"
+    body_mode: UPPER_BODY
+    primary_joint: elbow_flexion_left
+    mirror_joint: elbow_flexion_right
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      Upper arm still at your side. Bend the left elbow fully, then straighten
+      completely. The straightened position matters as much as the bend.
+
+  - code: ELB_FLEX_R
+    name: "Elbow flexion: right"
+    body_mode: UPPER_BODY
+    primary_joint: elbow_flexion_right
+    mirror_joint: elbow_flexion_left
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      As above, using the right elbow.
+
+  - code: NECK_NEUTRAL
+    name: Cervical neutral hold
+    body_mode: UPPER_BODY
+    primary_joint: neck_inclination
+    movement_type: HOLD
+    goal: REDUCE
+    instructions: >
+      Sit or stand tall, chin gently tucked, ears over shoulders. Hold without
+      letting the head drift forward.
+
+  - code: TRUNK_UPRIGHT
+    name: Upright trunk hold
+    body_mode: FULL_BODY
+    primary_joint: trunk_posture
+    movement_type: HOLD
+    goal: REDUCE
+    instructions: >
+      Stand tall and still, weight even on both feet, spine vertical.
+
+  # ------------------------------------------------------------------ lower --
+  - code: KNEE_FLEX_L
+    name: "Knee flexion: left"
+    body_mode: LOWER_BODY
+    primary_joint: knee_flexion_left
+    mirror_joint: knee_flexion_right
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      Stand side-on to the camera and bend the left knee, drawing the heel
+      towards the buttock. Lower under control.
+
+  - code: KNEE_FLEX_R
+    name: "Knee flexion: right"
+    body_mode: LOWER_BODY
+    primary_joint: knee_flexion_right
+    mirror_joint: knee_flexion_left
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      As above, using the right knee.
+
+  - code: SQUAT_ROM
+    name: Bilateral squat range
+    body_mode: LOWER_BODY
+    primary_joint: knee_flexion_left
+    mirror_joint: knee_flexion_right
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      Feet shoulder width, whole body in frame. Squat as deep as is comfortable
+      keeping the heels down, then stand fully.
+
+  - code: HIP_FLEX_L
+    name: "Hip flexion: left"
+    body_mode: LOWER_BODY
+    primary_joint: hip_flexion_left
+    mirror_joint: hip_flexion_right
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      Stand side-on. Lift the left knee towards the chest, then lower.
+
+  - code: HIP_FLEX_R
+    name: "Hip flexion: right"
+    body_mode: LOWER_BODY
+    primary_joint: hip_flexion_right
+    mirror_joint: hip_flexion_left
+    movement_type: REP
+    goal: INCREASE
+    instructions: >
+      As above, using the right hip.
+
+  - code: PELVIS_LEVEL
+    name: Level pelvis hold
+    body_mode: FULL_BODY
+    primary_joint: pelvic_tilt
+    movement_type: HOLD
+    goal: REDUCE
+    instructions: >
+      Stand with weight even on both legs and hips level. Hold steady.
+
+# =============================================================================
+
+conditions:
+  # ------------------------------------------------------------------ upper --
+  - code: ADHESIVE_CAPSULITIS
+    name: Frozen shoulder (adhesive capsulitis)
+    body_region: UPPER
+    description: >
+      Progressive loss of glenohumeral range. Course aims to restore abduction
+      without provoking pain; targets start conservative and are raised as the
+      patient's achieved range improves.
+    protocol:
+      - exercise: SH_ABD_L
+        target_rom_deg: 120
+        target_reps: 10
+        band_min_deg: 60
+        band_max_deg: 170
+      - exercise: SH_ABD_R
+        target_rom_deg: 120
+        target_reps: 10
+        band_min_deg: 60
+        band_max_deg: 170
+      - exercise: SH_ABD_HOLD
+        target_hold_sec: 20
+        band_min_deg: 75
+        band_max_deg: 105
+      - exercise: TRUNK_UPRIGHT
+        target_hold_sec: 30
+        band_max_deg: 10
+
+  - code: ROTATOR_CUFF
+    name: Rotator cuff rehabilitation
+    body_region: UPPER
+    description: >
+      Post-injury or post-repair strengthening. Emphasis on controlled abduction
+      through range with the trunk kept still, since trunk lean is the classic
+      compensation.
+    protocol:
+      - exercise: SH_ABD_L
+        target_rom_deg: 150
+        target_reps: 12
+        band_min_deg: 30
+        band_max_deg: 175
+      - exercise: SH_ABD_R
+        target_rom_deg: 150
+        target_reps: 12
+        band_min_deg: 30
+        band_max_deg: 175
+      - exercise: SH_ABD_HOLD
+        target_hold_sec: 30
+        band_min_deg: 80
+        band_max_deg: 100
+
+  - code: STROKE_UPPER_LIMB
+    name: Post-stroke upper limb rehabilitation
+    body_region: UPPER
+    description: >
+      Regaining active range and inter-limb symmetry on the affected side. The
+      symmetry delta between the two arms is the number to watch here.
+    protocol:
+      - exercise: SH_ABD_L
+        target_rom_deg: 90
+        target_reps: 8
+        band_min_deg: 20
+        band_max_deg: 160
+      - exercise: SH_ABD_R
+        target_rom_deg: 90
+        target_reps: 8
+        band_min_deg: 20
+        band_max_deg: 160
+      - exercise: ELB_FLEX_L
+        target_rom_deg: 110
+        target_reps: 10
+        band_min_deg: 10
+        band_max_deg: 140
+      - exercise: ELB_FLEX_R
+        target_rom_deg: 110
+        target_reps: 10
+        band_min_deg: 10
+        band_max_deg: 140
+
+  - code: LATERAL_EPICONDYLITIS
+    name: Tennis elbow (lateral epicondylitis)
+    body_region: UPPER
+    description: >
+      Restoring pain-free elbow range. Full extension is the usual sticking
+      point, so the lower end of the band matters more than the top.
+    protocol:
+      - exercise: ELB_FLEX_L
+        target_rom_deg: 140
+        target_reps: 15
+        band_min_deg: 5
+        band_max_deg: 145
+      - exercise: ELB_FLEX_R
+        target_rom_deg: 140
+        target_reps: 15
+        band_min_deg: 5
+        band_max_deg: 145
+
+  - code: CERVICAL_POSTURAL
+    name: Cervical postural syndrome
+    body_region: UPPER
+    description: >
+      Forward head posture. Success is a FALLING neck inclination, so this
+      condition's exercises are scored in the REDUCE direction.
+    protocol:
+      - exercise: NECK_NEUTRAL
+        target_hold_sec: 45
+        band_max_deg: 12
+      - exercise: TRUNK_UPRIGHT
+        target_hold_sec: 45
+        band_max_deg: 8
+
+  # ------------------------------------------------------------------ lower --
+  - code: KNEE_OA
+    name: Knee osteoarthritis
+    body_region: LOWER
+    description: >
+      Maintaining flexion range and quadriceps control. Targets stay modest;
+      the aim is consistency across sessions rather than a big single number.
+    protocol:
+      - exercise: KNEE_FLEX_L
+        target_rom_deg: 110
+        target_reps: 12
+        band_min_deg: 10
+        band_max_deg: 130
+      - exercise: KNEE_FLEX_R
+        target_rom_deg: 110
+        target_reps: 12
+        band_min_deg: 10
+        band_max_deg: 130
+      - exercise: SQUAT_ROM
+        target_rom_deg: 80
+        target_reps: 10
+        band_min_deg: 15
+        band_max_deg: 100
+
+  - code: ACL_RECON
+    name: ACL reconstruction rehabilitation
+    body_region: LOWER
+    description: >
+      Staged return of flexion and extension after reconstruction. Symmetry
+      against the uninvolved leg is the primary discharge criterion.
+    protocol:
+      - exercise: KNEE_FLEX_L
+        target_rom_deg: 130
+        target_reps: 15
+        band_min_deg: 5
+        band_max_deg: 140
+      - exercise: KNEE_FLEX_R
+        target_rom_deg: 130
+        target_reps: 15
+        band_min_deg: 5
+        band_max_deg: 140
+      - exercise: SQUAT_ROM
+        target_rom_deg: 100
+        target_reps: 12
+        band_min_deg: 20
+        band_max_deg: 120
+
+  - code: HIP_ARTHROPLASTY
+    name: Post hip replacement rehabilitation
+    body_region: LOWER
+    description: >
+      Early mobilisation within surgical precautions. Note the deliberately
+      capped upper band: exceeding it is not progress, it is a precaution
+      breach, and the report flags it rather than rewarding it.
+    protocol:
+      - exercise: HIP_FLEX_L
+        target_rom_deg: 80
+        target_reps: 10
+        band_min_deg: 10
+        band_max_deg: 90
+      - exercise: HIP_FLEX_R
+        target_rom_deg: 80
+        target_reps: 10
+        band_min_deg: 10
+        band_max_deg: 90
+      - exercise: PELVIS_LEVEL
+        target_hold_sec: 30
+        band_max_deg: 8
+
+  # ------------------------------------------------------------------- full --
+  - code: LOW_BACK_PAIN
+    name: Non-specific low back pain
+    body_region: FULL
+    description: >
+      Postural control and hip mobility. Scored on reducing trunk and pelvic
+      deviation rather than on achieving a large range.
+    protocol:
+      - exercise: TRUNK_UPRIGHT
+        target_hold_sec: 60
+        band_max_deg: 8
+      - exercise: PELVIS_LEVEL
+        target_hold_sec: 45
+        band_max_deg: 6
+      - exercise: HIP_FLEX_L
+        target_rom_deg: 90
+        target_reps: 10
+        band_min_deg: 15
+        band_max_deg: 110
+      - exercise: HIP_FLEX_R
+        target_rom_deg: 90
+        target_reps: 10
+        band_min_deg: 15
+        band_max_deg: 110

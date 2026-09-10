@@ -70,6 +70,16 @@ class PoseSocket {
 
   String? _url;
   int _seq = 0;
+  /// Records replies: session_started, exercise_started, exercise_saved,
+  /// session_ended and records_error.
+  ///
+  /// Kept as its own stream rather than folded into [frames] because a pose
+  /// frame arrives 10-30 times a second and these arrive a handful of times a
+  /// session. Mixing them would force every pose listener to filter.
+  final StreamController<Map<String, dynamic>> _records =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get records => _records.stream;
+
   int _inFlight = 0;
   bool _disposed = false;
   bool _manualClose = false;
@@ -289,6 +299,29 @@ class PoseSocket {
     return true;
   }
 
+  // --------------------------------------------------------------------------
+  // RECORDS CONTROL
+  // --------------------------------------------------------------------------
+  // These ride the same socket as the frames because the server needs them on
+  // the SAME PhysioSession object that is processing this client's video — the
+  // recorder is attached to that session and fed by it. A REST call would land
+  // on a different request context with no access to the live pipeline.
+
+  void startRecordsSession(int patientId) =>
+      _sendControl({'type': 'session_start', 'patient_id': patientId});
+
+  void endRecordsSession({String? notes}) =>
+      _sendControl({'type': 'session_end', 'notes': notes});
+
+  void startExercise(int exerciseId, {int? sequence}) => _sendControl({
+        'type': 'exercise_start',
+        'exercise_id': exerciseId,
+        if (sequence != null) 'sequence': sequence,
+      });
+
+  void stopExercise({bool aborted = false}) =>
+      _sendControl({'type': 'exercise_stop', 'aborted': aborted});
+
   void setMode(BodyMode mode) =>
       _sendControl(<String, dynamic>{'type': 'set_mode', 'mode': mode.wire});
 
@@ -366,6 +399,13 @@ class PoseSocket {
           }
         }
 
+      case 'session_started':
+      case 'session_ended':
+      case 'exercise_started':
+      case 'exercise_saved':
+      case 'records_error':
+        if (!_records.isClosed) _records.add(json);
+
       case 'hello':
         serverVersion = json['version'] as String?;
 
@@ -389,6 +429,7 @@ class PoseSocket {
     await _frames.close();
     await _status.close();
     await _errors.close();
+    await _records.close();
   }
 
   // --------------------------------------------------------------------------
